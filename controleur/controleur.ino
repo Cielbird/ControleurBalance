@@ -88,19 +88,17 @@ void navigationKey()
   }
 }
 
-
-
 void setup()
 {
-  Serial.begin(115200);  
+  Serial.begin(9600);  
 
   //Setup LCD screen
   lcd.begin(16, 2);
 
   //SETUP régulateur de position.
-  double P= 0.0004;
-  double I = 0.0005;
-  double D = 0.0025;
+  double P = 0.1;
+  double I = 0.015;
+  double D = 0.0;
   pinMode(PIN_POSITION, INPUT);
   myController.begin(&input, &output, &setpoint, P, I, D, P_ON_E, BACKWARD, 20);
   myController.setOutputLimits(-254, 254);
@@ -110,13 +108,23 @@ void setup()
   //Set PWM speed to 37KHz
   TCCR1B = TCCR1B & B11111000 | B00000010;
   pinMode(10, OUTPUT);
-  pinMode()
 }
 
-double capteurVoltToDist(double tension)
+double capteurInputToDist(double tension)
 {
-  C_1 = 
-  return pow(C_1 / (tension - C_3), 2/3) - C_2
+  // convert arduino input to ampli output
+  tension = input * (5.0 / 1023.0)
+  // convert ampli output to input
+  // voir tableau 7.5 du rapport
+  tension /= 2.4; // K
+  tension += 0.4; // V offset
+  // convert capteur output to dist
+  // voir graphique 7.6
+  double C_1 = 5813.9;
+  double C_2 = 198.24;
+  double C_3 = 0.60750;
+  double a = pow(C_1 / (tension - C_3), 2.0/3) - C_2;
+  return sqrt(a);
 }
 
 void loop()
@@ -124,8 +132,12 @@ void loop()
   //Lecture du bouton analogique, peut-être changer pour une interruption en mode falling-edge avec les registres.
   //lcd_key = read_LCD_buttons(); // Read the current button state
   //navigationKey();
-  voltage = analogRead(PIN_POSITION) / 1000.0 * 5.0;
-  input = capteurVoltToDist(voltage);
+  int in = analogRead(PIN_POSITION)
+  input = capteurInputToDist(in);
+  Serial.print("v: ");
+  Serial.print(voltage);
+  Serial.print("d pour 2: ");
+  Serial.print(capteurInputToDist(512));
 
   myController.compute();
   //Pour afficher les valeur de PID, et input, output, seulement enlever les commentaire.
@@ -137,15 +149,13 @@ void loop()
   //myController.debug(&Serial, "myController",PRINT_BIAS);
 
   //Cette section est utile pour trouver la position zero
-  Serial.print("Valeur set = ");
-  Serial.print(setpoint);
-  Serial.print(" Valeur apercu = ");
-  Serial.print(input);
-  Serial.print(" Valeur Output = ");
-  Serial.println(output);
-
-
-
+  //Serial.print("Valeur set = ");
+  //Serial.print(setpoint);
+  //Serial.print(" Valeur apercu = ");
+  //Serial.print(input);
+  //Serial.print(" Valeur Output = ");
+  //Serial.println(output);
+  Serial.print('\n');
   analogWrite(10, output+29); //Output for Vamp_in
   delay(20);
 }
