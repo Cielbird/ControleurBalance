@@ -42,6 +42,12 @@ byte fleches[8] = {
   B00100,
 };
 
+// input readings and running average for current output from the amplifier
+const int numCurrentReadings = 32;
+double currentReadings[numCurrentReadings]; // the readings from the analog input
+int currentReadIndex = 0;                   // the index of the current reading
+double currentInputTotal = 0;               // the running total
+
 //déclaration boucle de régulation (Présentement en position)
 ArduPID myController;
 double input;
@@ -126,7 +132,7 @@ void tareRoutine(){
   delay(100);
 }
 
-void updateMenu(){
+void updateLCD(){
   String lcdTopText;
   if(millis() - tepTimer > 500){
     tepTimer = millis();
@@ -202,6 +208,41 @@ double capteurInputToDist(int in)
   return sqrt(a);
 }
 
+void updateController()
+{
+  if(millis() - controllerTimer > 20){
+    controllerTimer = millis();
+    int analogIn = analogRead(PIN_POSITION);
+    input = capteurInputToDist(analogIn);
+    myController.compute();
+    analogWrite(PIN_PWM, output+29); //Output for Vamp_in
+    //Pour afficher les valeur de PID, et input, output, seulement enlever les commentaire.
+    /*myController.debug(&Serial, "myController", PRINT_INPUT    | // Can include or comment out any of these terms to print
+                                                PRINT_OUTPUT   | // in the Serial plotter
+                                                PRINT_SETPOINT |
+                                                PRINT_BIAS     );*/
+    //myController.debug(&Serial, "myController",PRINT_BIAS);
+  }
+}
+
+void readCurrent(){
+  currentInputTotal = currentInputTotal - currentReadings[currentReadIndex];
+  currentReadings[currentReadIndex] = analogRead(PIN_CURRENT);
+  currentInputTotal = currentInputTotal + currentReadings[currentReadIndex];
+  currentReadIndex++;
+  // wrap around at the end
+  if (currentReadIndex >= numCurrentReadings) {
+    currentReadIndex = 0;
+  }
+
+  // Calculate the average:
+  double inputAverage = currentInputTotal / numCurrentReadings;
+
+  // update current vars
+  current = inputAverage * (5.0 / 1023.0) * 50;
+  taredCurrent = current - tare;
+}
+
 void setup()
 {
   Serial.begin(9600);  
@@ -228,32 +269,15 @@ void setup()
 
 void loop()
 {
-  //Lecture du bouton analogique, peut-être changer pour une interruption en mode falling-edge avec les registres.
-  //lcd_key = read_LCD_buttons(); // Read the current button state
-  //navigationKey();
-  int inPos = analogRead(PIN_POSITION);
-  double newInput = capteurInputToDist(inPos);
-  input = newInput;//(newInput + input)/2;
-  int inCur = analogRead(PIN_CURRENT);
-  current = inCur * (5.0 / 1023.0) * 60;
-  taredCurrent = current - tare;
-  Serial.println();
+  // read values from current input pin
+  readCurrent();
 
-  myController.compute();
-  analogWrite(PIN_PWM, output+29); //Output for Vamp_in
-  //Pour afficher les valeur de PID, et input, output, seulement enlever les commentaire.
-  /*myController.debug(&Serial, "myController", PRINT_INPUT    | // Can include or comment out any of these terms to print
-                                              PRINT_OUTPUT   | // in the Serial plotter
-                                              PRINT_SETPOINT |
-                                              PRINT_BIAS     );*/
-  
-  //myController.debug(&Serial, "myController",PRINT_BIAS);
+  // update input and output of the PID controller
+  updateController();
 
-  // input update
+  // update the input read from LCD shield buttons
   updateInput();
 
-  // print menu
-  updateMenu();
-
-  delay(20);
+  // print LCD menu
+  updateLCD();
 }
