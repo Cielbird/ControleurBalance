@@ -268,7 +268,7 @@ void setup()
   myController.start();
 
   //Set PWM speed to 37KHz
-  TCCR1B = TCCR1B & B11111000 | B00000010;
+  //TCCR1B = TCCR1B & B11111000 | B00000010;
   pinMode(PIN_PWM, OUTPUT);
 }
 
