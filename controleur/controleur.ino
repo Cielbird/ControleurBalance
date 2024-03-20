@@ -23,6 +23,7 @@ LiquidCrystal lcd(8, 9, 4, 5, 6, 7);        // select the pins used on the LCD p
 
 unsigned long tepTimer ;
 unsigned long buttonTimer;
+unsigned long controllerTimer;
 // 1:right, 2:up, 3:down, 4:left, 5:select, 0:nothing
 byte prevSelectedButton;
 // 0: pesée, 1: tarage, 2: étalonnage
@@ -55,7 +56,7 @@ double output;
 double current;
 double taredCurrent;
 double tare = 0.0;
-double setpoint = 16.4;
+double setpoint = 1.445; //16.4; dis en mm
 
 /**
 Returns a byte for the currently selected button. 1:right, 2:up, 3:down, 4:left, 5:select, 0:nothing
@@ -189,10 +190,15 @@ void updateInput(){
   }
 }
 
+double capteurInputToVoltage(int in){
+  // convert arduino input to ampli output
+  return in * (5.0 / 1023.0);
+}
+
 double capteurInputToDist(int in)
 {
   // convert arduino input to ampli output
-  double tension = in * (5.0 / 1023.0);
+  double tension = capteurInputToVoltage(in);
   // convert ampli output to input
   // obtenu en essai erreur
   tension /= 9;    // K
@@ -213,9 +219,9 @@ void updateController()
   if(millis() - controllerTimer > 20){
     controllerTimer = millis();
     int analogIn = analogRead(PIN_POSITION);
-    input = capteurInputToDist(analogIn);
+    input = capteurInputToVoltage(analogIn);
     myController.compute();
-    analogWrite(PIN_PWM, output+29); //Output for Vamp_in
+    analogWrite(PIN_PWM, output); //Output for Vamp_in
     //Pour afficher les valeur de PID, et input, output, seulement enlever les commentaire.
     /*myController.debug(&Serial, "myController", PRINT_INPUT    | // Can include or comment out any of these terms to print
                                                 PRINT_OUTPUT   | // in the Serial plotter
@@ -252,12 +258,12 @@ void setup()
   lcd.createChar(0, fleches);
 
   //SETUP régulateur de position.
-  double P = 0.001;
-  double I = 0.5;
+  double P = 0.0001;
+  double I = 0.05; 
   double D = 0.0;
   pinMode(PIN_POSITION, INPUT);
-  myController.begin(&input, &output, &setpoint, P, I, D, P_ON_E, FORWARD, 20);
-  myController.setOutputLimits(-254, 254);
+  myController.begin(&input, &output, &setpoint, P, I, D, P_ON_E, BACKWARD, 20);
+  myController.setOutputLimits(0, 255);
   myController.setWindUpLimits(-500, 500); // Groth bounds for the integral term to prevent integral wind-up
   myController.start();
 
