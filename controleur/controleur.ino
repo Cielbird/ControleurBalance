@@ -8,14 +8,13 @@ const int PIN_POSITION = A1;
 const int PIN_CURRENT = A2;
 const int PIN_PWM = 3;
 
-
-//initialisation de l'écran LCD
-#define btnRIGHT 0
-#define btnUP 1
-#define btnDOWN 2
-#define btnLEFT 3
-#define btnSELECT 4
-#define btnNONE 5
+//constantes pour les boutons utilisés
+#define BTN_NONE 0
+#define BTN_RIGHT 1
+#define BTN_UP 2
+#define BTN_DOWN 3
+#define BTN_LEFT 4
+#define BTN_SELECT 5
 
 
 //Setup écran LCD
@@ -29,8 +28,10 @@ byte prevSelectedButton;
 // 0: pesée, 1: tarage, 2: étalonnage
 byte mode;
 
-unsigned int weights[] = {1, 2, 5, 10, 20, 50};
+unsigned int weights[] = {1, 2, 5, 10, 20, 50};//faire un étalonnage de 0 9
 byte selectedCalib;
+
+double tension = 0;
 
 // characters speciaux
 byte fleches[8] = {
@@ -44,7 +45,7 @@ byte fleches[8] = {
 };
 
 // input readings and running average for current output from the amplifier
-const int numCurrentReadings = 32;
+const int numCurrentReadings = 256;
 double currentReadings[numCurrentReadings]; // the readings from the analog input
 int currentReadIndex = 0;                   // the index of the current reading
 double currentInputTotal = 0;               // the running total
@@ -65,17 +66,17 @@ byte getSelectedButton(){
   int val = analogRead(0);                     // read the analog value for buttons
   int selected;
   if(val < 66){
-    selected = 1; // 0: right
+    selected = BTN_RIGHT; // 0: right
   }else if(val < 220){  
-    selected = 2; // 132: up
+    selected = BTN_UP; // 132: up
   }else if(val < 395){
-    selected = 3; // 309: down
+    selected = BTN_DOWN; // 309: down
   }else if(val < 602){
-    selected = 4; // 481: left
+    selected = BTN_LEFT; // 481: left
   }else if(val < 963){  
-    selected = 5; // 722: select
+    selected = BTN_SELECT; // 722: select
   }else{
-    selected = 0; // 1023: nothing
+    selected = BTN_NONE; // 1023: nothing
   }
   return selected;
 }
@@ -182,7 +183,7 @@ void updateInput(){
   if(millis() - buttonTimer > 50){
     int s = getSelectedButton();
     if(prevSelectedButton != s){
-      if(s != 0)
+      if(s != BTN_NONE)
         buttonTimer = millis();
         handleInput(s);
       prevSelectedButton = s;
@@ -195,24 +196,6 @@ double capteurInputToVoltage(int in){
   return in * (5.0 / 1023.0);
 }
 
-double capteurInputToDist(int in)
-{
-  // convert arduino input to ampli output
-  double tension = capteurInputToVoltage(in);
-  // convert ampli output to input
-  // obtenu en essai erreur
-  tension /= 9;    // K
-  tension += 0.94; // V offset
-  // convert capteur output to dist
-  // voir graphique 7.6
-  double C_1 = 5813.9;
-  double C_2 = 198.24;
-  double C_3 = 0.60750;
-  tension = max(tension, 0.9); // pour eviter des erreurs, min val
-  tension = min(tension, 2.69); // pour eviter des erreurs, max val
-  double a = pow(C_1 / (tension - C_3), 2.0/3) - C_2;
-  return sqrt(a);
-}
 
 void updateController()
 {
@@ -220,6 +203,7 @@ void updateController()
     controllerTimer = millis();
     int analogIn = analogRead(PIN_POSITION);
     input = capteurInputToVoltage(analogIn);
+    tension = input;
     myController.compute();
     analogWrite(PIN_PWM, output); //Output for Vamp_in
     //Pour afficher les valeur de PID, et input, output, seulement enlever les commentaire.
@@ -230,6 +214,7 @@ void updateController()
     //myController.debug(&Serial, "myController",PRINT_BIAS);
   }
 }
+
 
 void readCurrent(){
   currentInputTotal = currentInputTotal - currentReadings[currentReadIndex];
@@ -245,21 +230,37 @@ void readCurrent(){
   double inputAverage = currentInputTotal / numCurrentReadings;
 
   // update current vars
-  current = inputAverage * (5.0 / 1023.0) * 50;
+  current = inputAverage * (5.0 / 1023.0) * 50.0 *50.0 /36.45;
   taredCurrent = current - tare;
 }
 
+void receiveCom()
+{
+  if (Serial.available() > 0) { // Check if data is available to read
+    char command = Serial.read(); // Read the incoming byte
+    if (command == '1') {
+      // Perform action for command 1
+      tareRoutine();
+    } else if (command == '2') {
+      // Perform action for command 2
+      //Serial.println("Received command 2");
+    }
+    // Add more conditions for additional commands if needed
+  }
+}
+
+
 void setup()
 {
-  Serial.begin(9600);  
+  Serial.begin(115200);  
 
   //Setup LCD screen
   lcd.begin(16, 2);
   lcd.createChar(0, fleches);
 
   //SETUP régulateur de position.
-  double P = 0.0001;
-  double I = 0.05; 
+  double P = 0.1;
+  double I = 0.5; 
   double D = 0.0;
   pinMode(PIN_POSITION, INPUT);
   myController.begin(&input, &output, &setpoint, P, I, D, P_ON_E, BACKWARD, 20);
@@ -272,6 +273,10 @@ void setup()
   pinMode(PIN_PWM, OUTPUT);
 }
 
+void sendData()
+{
+  Serial.println( "masse: " + String(taredCurrent) + "," + "tension position: " + String(tension));
+}
 
 void loop()
 {
@@ -286,4 +291,8 @@ void loop()
 
   // print LCD menu
   updateLCD();
+  
+  // read incoming commands
+  receiveCom();
+  sendData();
 }
