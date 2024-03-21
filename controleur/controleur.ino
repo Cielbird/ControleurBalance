@@ -261,6 +261,10 @@ void receiveCom()
   }
 }
 
+void sendData()
+{
+  Serial.println( "masse: " + String(taredCurrent) + "," + "tension position: " + String(tension));
+}
 
 void setup()
 {
@@ -284,11 +288,6 @@ void setup()
   //Set PWM speed to 37KHz
   //TCCR1B = TCCR1B & B11111000 | B00000010;
   pinMode(PIN_PWM, OUTPUT);
-}
-
-void sendData()
-{
-  Serial.println( "masse: " + String(taredCurrent) + "," + "tension position: " + String(tension));
 }
 
 void loop()
