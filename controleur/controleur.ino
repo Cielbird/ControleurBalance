@@ -3,10 +3,10 @@
 
 
 //Déclaration E/S
-const int PIN_BOUTON = A0;
-const int PIN_POSITION = A1;
-const int PIN_CURRENT = A2;
-const int PIN_PWM = 3;
+#define PIN_BOUTON A0
+#define PIN_POSITION A1
+#define PIN_CURRENT A2
+#define PIN_PWM 3
 
 //constantes pour les boutons utilisés
 #define BTN_NONE 0
@@ -26,12 +26,11 @@ unsigned long controllerTimer;
 // 1:right, 2:up, 3:down, 4:left, 5:select, 0:nothing
 byte prevSelectedButton;
 // 0: pesée, 1: tarage, 2: étalonnage
-byte mode;
+enum Mode {Pesage, Tarage, Etalonnage};
+Mode mode = Pesage;
 
 unsigned int weights[] = {1, 2, 5, 10, 20, 50};//faire un étalonnage de 0 9
 byte selectedCalib;
-
-double tension = 0;
 
 // characters speciaux
 byte FLECHES[8] = {
@@ -58,15 +57,16 @@ const int numCurrentReadings = 256;
 double currentReadings[numCurrentReadings]; // the readings from the analog input
 int currentReadIndex = 0;                   // the index of the current reading
 double currentInputTotal = 0;               // the running total
+double latestMaxCurrent = 0;
 
 //déclaration boucle de régulation (Présentement en position)
 ArduPID myController;
-double input;
-double output;
+double output; // PID output
+double tensionPos; // PID input
+double setpoint = 1.445; //16.4; dis en mm
 double current;
 double taredCurrent;
-double tare = 0.0;
-double setpoint = 1.445; //16.4; dis en mm
+double tare;
 
 /**
 Returns a byte for the currently selected button. 1:right, 2:up, 3:down, 4:left, 5:select, 0:nothing
@@ -90,17 +90,41 @@ byte getSelectedButton(){
   return selected;
 }
 
+void cycleModeRight(){
+  switch(mode){
+    case Pesage:
+      mode = Tarage;
+      break;
+    case Tarage:
+      mode = Etalonnage;
+      break;
+    case Etalonnage:
+      mode = Pesage;
+      break;
+  }
+}
+
+void cycleModeLeft(){
+  switch(mode){
+    case Pesage:
+      mode = Etalonnage;
+      break;
+    case Tarage:
+      mode = Pesage;
+      break;
+    case Etalonnage:
+      mode = Tarage;
+      break;
+  }
+}
+
 void handleInput(byte button){
   switch(button){
     case 1: // right
-      mode = (mode+1)%3;
+      cycleModeRight();
       break;
     case 4: // left
-      // can't use modulo 255 is not multiple of 3
-      if(mode==0)
-        mode = 2;
-      else
-        mode = mode-1;
+      cycleModeLeft();
       break;
     case 2: // up
       selectedCalib = (selectedCalib+1)%6;
@@ -151,13 +175,13 @@ void updateLCD(){
     lcd.clear();
     lcd.setCursor(0, 0);
     switch(mode){
-      case 0: //pesée
+      case Pesage: //pesée
         lcdTopText = "< Peser >";
         break;
-      case 1: //tarage
+      case Tarage: //tarage
         lcdTopText = "< Tarer >";
         break;
-      case 2: //étalonnage
+      case Etalonnage: //étalonnage
         lcdTopText = "< Calibrer >";
     }
     lcd.print(lcdTopText);
@@ -166,13 +190,13 @@ void updateLCD(){
     lcd.write(byte(1)); // smiley
 
     switch(mode){
-      case 0: //pesée
+      case Pesage: //pesée
         lcd.setCursor(11, 1);
         lcd.print(taredCurrent);
         lcd.setCursor(15, 1);
         lcd.print("g");
         break;
-      case 1: //tarage
+      case Tarage: //tarage
         lcd.setCursor(0, 1);
         lcd.print("OK");
         lcd.setCursor(11, 1);
@@ -180,7 +204,7 @@ void updateLCD(){
         lcd.setCursor(15, 1);
         lcd.print("g");
         break;
-      case 2: //étalonnage
+      case Etalonnage: //étalonnage
         lcd.setCursor(0, 1);
         lcd.print("OK");
         lcd.setCursor(12, 1);
@@ -194,10 +218,13 @@ void updateLCD(){
 void updateInput(){
   if(millis() - buttonTimer > 50){
     int s = getSelectedButton();
-    if(prevSelectedButton != s){
+    if(prevSelectedButton != s)
+    {
       if(s != BTN_NONE)
+      {
         buttonTimer = millis();
         handleInput(s);
+      }
       prevSelectedButton = s;
     }
   }
@@ -214,8 +241,7 @@ void updateController()
   if(millis() - controllerTimer > 20){
     controllerTimer = millis();
     int analogIn = analogRead(PIN_POSITION);
-    input = capteurInputToVoltage(analogIn);
-    tension = input;
+    tensionPos = capteurInputToVoltage(analogIn);
     myController.compute();
     analogWrite(PIN_PWM, output); //Output for Vamp_in
     //Pour afficher les valeur de PID, et input, output, seulement enlever les commentaire.
@@ -229,8 +255,9 @@ void updateController()
 
 
 void readCurrent(){
+  int currentReading = analogRead(PIN_CURRENT);
   currentInputTotal = currentInputTotal - currentReadings[currentReadIndex];
-  currentReadings[currentReadIndex] = analogRead(PIN_CURRENT);
+  currentReadings[currentReadIndex] = currentReading;
   currentInputTotal = currentInputTotal + currentReadings[currentReadIndex];
   currentReadIndex++;
   // wrap around at the end
@@ -263,7 +290,7 @@ void receiveCom()
 
 void sendData()
 {
-  Serial.println( "masse: " + String(taredCurrent) + "," + "tension position: " + String(tension));
+  Serial.println( "masse: " + String(taredCurrent) + "," + "tension position: " + String(tensionPos));
 }
 
 void setup()
@@ -280,7 +307,7 @@ void setup()
   double I = 0.5; 
   double D = 0.0;
   pinMode(PIN_POSITION, INPUT);
-  myController.begin(&input, &output, &setpoint, P, I, D, P_ON_E, BACKWARD, 20);
+  myController.begin(&tensionPos, &output, &setpoint, P, I, D, P_ON_E, BACKWARD, 20);
   myController.setOutputLimits(0, 255);
   myController.setWindUpLimits(-500, 500); // Groth bounds for the integral term to prevent integral wind-up
   myController.start();
