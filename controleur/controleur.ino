@@ -34,7 +34,7 @@ byte selectedCalib;
 double tension = 0;
 
 // characters speciaux
-byte fleches[8] = {
+byte FLECHES[8] = {
   B00100,
   B01010,
   B10001,
@@ -42,6 +42,15 @@ byte fleches[8] = {
   B10001,
   B01010,
   B00100,
+};
+byte SMILEY[8] = {
+  B00000,
+  B01010,
+  B01010,
+  B00000,
+  B10001,
+  B10001,
+  B01110,
 };
 
 // input readings and running average for current output from the amplifier
@@ -153,6 +162,9 @@ void updateLCD(){
     }
     lcd.print(lcdTopText);
 
+    lcd.setCursor(15, 0);
+    lcd.write(byte(1)); // smiley
+
     switch(mode){
       case 0: //pesée
         lcd.setCursor(11, 1);
@@ -256,7 +268,8 @@ void setup()
 
   //Setup LCD screen
   lcd.begin(16, 2);
-  lcd.createChar(0, fleches);
+  lcd.createChar(0, FLECHES);
+  lcd.createChar(1, SMILEY);
 
   //SETUP régulateur de position.
   double P = 0.1;
