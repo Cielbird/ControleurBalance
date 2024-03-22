@@ -82,11 +82,12 @@ double stabilityPeriod = 3000; // en [ms]
 double stabilityRange = 0.5; // the max differnce betweeen setpoint and the current tensionPos value that is considered stable.
 unsigned long lastStableValTime;
 
-/**
-Returns a byte for the currently selected button. 1:right, 2:up, 3:down, 4:left, 5:select, 0:nothing
-**/
+/*
+  Returns a byte for the currently selected button. See defined constants BTN_RIGHT, BTN_LEFT...
+*/
 byte getSelectedButton(){
-  int val = analogRead(0);                     // read the analog value for buttons
+  // val is from 0 to 1023
+  int val = analogRead(0);
   int selected;
   if(val < 66){
     selected = BTN_RIGHT; // 0: right
@@ -104,6 +105,9 @@ byte getSelectedButton(){
   return selected;
 }
 
+/*
+  Cycles right through the top level modes
+*/
 void cycleModeRight(){
   switch(mode){
     case Pesage:
@@ -118,6 +122,9 @@ void cycleModeRight(){
   }
 }
 
+/*
+  Cycles left through the top level modes
+*/
 void cycleModeLeft(){
   switch(mode){
     case Pesage:
@@ -132,6 +139,9 @@ void cycleModeLeft(){
   }
 }
 
+/*
+  Handles input for cycling through top level modes, ie. left right mode selection
+*/
 void handleInputMenuSelect(byte button) {
   switch(button){
     case BTN_RIGHT:
@@ -143,6 +153,9 @@ void handleInputMenuSelect(byte button) {
   }
 }
 
+/*
+  Handles all input for the tare mode
+*/
 void handleInputTarage(byte button){
   handleInputMenuSelect(button);
   switch(button){
@@ -151,25 +164,9 @@ void handleInputTarage(byte button){
   }
 }
 
-
-void calibrate(){
-  bool calibrating = true;
-  lcd.clear();
-  // instrucitons étape 1
-  lcd.setCursor(0, 0);
-  lcd.print("1: Aucun poids");
-  lcd.setCursor(0, 1);
-  lcd.print("OK");
-  //
-  lcd.setCursor(0, 0);
-  lcd.print("Mesure a vide en");
-  lcd.setCursor(0, 1);
-  lcd.print(" cours...");
-  while(!isStable);
-
-  delay(1000);
-}
-
+/*
+  Handles all input for the calibration mode
+*/
 void handleInputEtalonnage(byte button){
   switch(sousModeEtalonnage)
   {
@@ -199,6 +196,9 @@ void handleInputEtalonnage(byte button){
   }
 }
 
+/*
+  Handles all input
+*/
 void handleInput(byte button){
   switch(mode){
     case Pesage:
@@ -213,33 +213,59 @@ void handleInput(byte button){
   }
 }
 
-void tareRoutine(){
-  bool taring = true;
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Tare");
-  lcd.setCursor(0, 1);
-  lcd.print("en cours...");
-  tare = current;
-  delay(100);
+/*
+  Gets and handles input, handles debouncing.
+*/
+void updateInput(){
+  if(millis() - buttonTimer > 50){
+    int s = getSelectedButton();
+    if(prevSelectedButton != s)
+    {
+      if(s != BTN_NONE)
+      {
+        buttonTimer = millis();
+        handleInput(s);
+      }
+      prevSelectedButton = s;
+    }
+  }
 }
 
+/*
+  Tares the balance
+*/
+void tare(){
+  tare = current;
+}
+
+/*
+  Prints a menu title to the LCD: "<>myTitle" at the top left of the LCD
+*/
 void lcdPrintTitle(String title){
   lcd.setCursor(0, 0);
   lcd.print("<>");
   lcd.print(title);
 }
 
+/*
+  Prints a smiley to the top right of the LCD if the balance is stable
+*/
 void lcdPrintStability(){
   lcd.setCursor(15, 0);
   if(isStable) lcd.write(byte(1)); // smiley
 }
 
+/*
+  Prints an OK at the bottom left of the LCD
+*/
 void lcdPrintOk(){
   lcd.setCursor(0, 1);
   lcd.print("OK");
 }
 
+/*
+  Prints an OK at the bottom left of the LCD if the balance is stable, ... otherwise 
+*/
 void lcdPrintOkIfStable(){
   lcd.setCursor(0, 1);
   if(isStable)
@@ -248,6 +274,9 @@ void lcdPrintOkIfStable(){
     lcd.print("...");
 }
 
+/*
+  Prints the calculated weight at the bottom right of the LCD
+*/
 void lcdPrintWeight(){
   lcd.setCursor(11, 1);
   lcd.print(taredCurrent);
@@ -255,12 +284,18 @@ void lcdPrintWeight(){
   lcd.print("g");
 }
 
+/*
+  Updates the LCD for the pesage mode
+*/
 void updateLcdPesage(){
   lcdPrintTitle("Peser");
   lcdPrintStability();
   lcdPrintWeight();
 }
 
+/*
+  Updates the LCD for the tarage mode
+*/
 void updateLcdTarage(){
   lcdPrintTitle("Tarer");
   lcdPrintOk();
@@ -268,6 +303,9 @@ void updateLcdTarage(){
   lcdPrintWeight();
 }
 
+/*
+  Updates the LCD for the etalonnage mode
+*/
 void updateLcdEtalonnage(){
   switch (sousModeEtalonnage){
     case Menu:
@@ -287,6 +325,9 @@ void updateLcdEtalonnage(){
   }
 }
 
+/*
+  Updates the LCD
+*/
 void updateLCD(){
   String lcdTopText;
   if(millis() - tepTimer > 500){
@@ -305,26 +346,17 @@ void updateLCD(){
   }
 }
 
-void updateInput(){
-  if(millis() - buttonTimer > 50){
-    int s = getSelectedButton();
-    if(prevSelectedButton != s)
-    {
-      if(s != BTN_NONE)
-      {
-        buttonTimer = millis();
-        handleInput(s);
-      }
-      prevSelectedButton = s;
-    }
-  }
-}
-
-double capteurInputToVoltage(int in){
+/*
+  Converts 10 bit analog input input to voltage
+*/
+double analogInToVoltage(int in){
   // convert arduino input to ampli output
   return in * (5.0 / 1023.0);
 }
 
+/*
+  Reads latest capteur reading and evaluates the stability, updates the isStable variable
+*/
 void updateStability(double latestVal)
 {
   if (abs(tensionPos - setpoint) > stabilityRange)
@@ -341,13 +373,17 @@ void updateStability(double latestVal)
   } 
 }
 
+/*
+  Reads the capteur input value, computes the PID controller, and updates the output. 
+  Updates the stability variable isStable.
+*/
 void updateController()
 {
   if(millis() - controllerTimer > 20)
   {
     controllerTimer = millis();
     int analogIn = analogRead(PIN_POSITION);
-    tensionPos = capteurInputToVoltage(analogIn);
+    tensionPos = analogInToVoltage(analogIn);
     myController.compute();
     analogWrite(PIN_PWM, output); //Output for Vamp_in
 
@@ -362,6 +398,9 @@ void updateController()
   }
 }
 
+/*
+  Reads the amp input, applies an averaging, and returns the smoothed voltage
+*/
 double readAmpVoltage(){
   int ampReading = analogRead(PIN_AMP);
   ampReadingsTotal = ampReadingsTotal - ampReadings[ampReadIndex];
@@ -373,16 +412,22 @@ double readAmpVoltage(){
     ampReadIndex = 0;
   }
   // Calculate the average and convert to voltage
-  return (ampReadingsTotal / numAmpReadings) * (5.0 / 1023.0);  
+  return analogInToVoltage(ampReadingsTotal / numAmpReadings);  
 }
 
+/*
+  Converts the amp input voltage to the estimated weight using the calibration constants
+*/
 void updateAmpCurrent(){
   double ampVoltage = readAmpVoltage();
   // update current vars
-  current = ampVoltage * 50.0 *50.0 /36.45;
+  current = calibConstA * ampVoltage + calibConstB;
   taredCurrent = current - tare;
 }
 
+/*
+  Checks for incoming serial data, if any, handles the commands.
+*/
 void receiveCom()
 {
   if (Serial.available() > 0) { // Check if data is available to read
@@ -398,6 +443,9 @@ void receiveCom()
   }
 }
 
+/*
+  Sends data to the PC with the following format: "masse: [masse],tension position: [tension pos]"
+*/
 void sendData()
 {
   //Serial.println( "masse: " + String(taredCurrent) + "," + "tension position: " + String(tensionPos));
