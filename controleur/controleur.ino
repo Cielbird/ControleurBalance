@@ -27,6 +27,8 @@ unsigned long controllerTimer;
 byte prevSelectedButton;
 // 0: pesée, 1: tarage, 2: étalonnage
 enum Mode {Pesage, Tarage, Etalonnage};
+// étape 1: mesure à vide, étape 2: mesure de 20g
+enum SousModeEtalonnage {Etape1, Etape2};
 Mode mode = Pesage;
 
 unsigned int weights[] = {1, 2, 5, 10, 20, 50};//faire un étalonnage de 0 9
@@ -64,9 +66,14 @@ ArduPID myController;
 double output; // PID output
 double tensionPos; // PID input
 double setpoint = 1.445; //16.4; dis en mm
+bool isStable;
 double current;
 double taredCurrent;
 double tare;
+// min et max dans les dernières secondes pour déterminer la stabilité
+double stabilityPeriod = 20000; // en [ms]
+double stabilityRange = 0.5; // the max differnce betweeen setpoint and the current tensionPos value that is considered stable.
+unsigned long lastStableValTime;
 
 /**
 Returns a byte for the currently selected button. 1:right, 2:up, 3:down, 4:left, 5:select, 0:nothing
@@ -149,11 +156,20 @@ void handleInput(byte button){
 void calibrate(){
   bool calibrating = true;
   lcd.clear();
+  // instrucitons étape 1
   lcd.setCursor(0, 0);
-  lcd.print("Calibration");
+  lcd.print("1: Aucun poids");
   lcd.setCursor(0, 1);
-  lcd.print("en cours...");
-  delay(100);
+  lcd.print("OK");
+  while(!)
+  //
+  lcd.setCursor(0, 0);
+  lcd.print("Mesure a vide en");
+  lcd.setCursor(0, 1);
+  lcd.print(" cours...");
+  while(!isStable);
+
+  delay(1000);
 }
 
 void tareRoutine(){
@@ -187,7 +203,7 @@ void updateLCD(){
     lcd.print(lcdTopText);
 
     lcd.setCursor(15, 0);
-    lcd.write(byte(1)); // smiley
+    if(isStable) lcd.write(byte(1)); // smiley
 
     switch(mode){
       case Pesage: //pesée
@@ -235,15 +251,34 @@ double capteurInputToVoltage(int in){
   return in * (5.0 / 1023.0);
 }
 
+void updateStability(double latestVal)
+{
+  if (abs(tensionPos - setpoint) > stabilityRange)
+  {
+    lastStableValTime = 0;
+    isStable = false;
+  }
+  else
+  { // value in range of stability
+    if (lastStableValTime == 0)
+      lastStableValTime = millis();
+    else if(millis() - lastStableValTime > stabilityPeriod)
+      isStable = true;
+  } 
+}
 
 void updateController()
 {
-  if(millis() - controllerTimer > 20){
+  if(millis() - controllerTimer > 20)
+  {
     controllerTimer = millis();
     int analogIn = analogRead(PIN_POSITION);
     tensionPos = capteurInputToVoltage(analogIn);
     myController.compute();
     analogWrite(PIN_PWM, output); //Output for Vamp_in
+
+    // check stability
+    updateStability(tensionPos);
     //Pour afficher les valeur de PID, et input, output, seulement enlever les commentaire.
     /*myController.debug(&Serial, "myController", PRINT_INPUT    | // Can include or comment out any of these terms to print
                                                 PRINT_OUTPUT   | // in the Serial plotter
@@ -264,7 +299,6 @@ void readCurrent(){
   if (currentReadIndex >= numCurrentReadings) {
     currentReadIndex = 0;
   }
-
   // Calculate the average:
   double inputAverage = currentInputTotal / numCurrentReadings;
 
@@ -290,7 +324,7 @@ void receiveCom()
 
 void sendData()
 {
-  Serial.println( "masse: " + String(taredCurrent) + "," + "tension position: " + String(tensionPos));
+  //Serial.println( "masse: " + String(taredCurrent) + "," + "tension position: " + String(tensionPos));
 }
 
 void setup()
