@@ -16,33 +16,9 @@
 #define BTN_LEFT 4
 #define BTN_SELECT 5
 
-
-//Setup écran LCD
-LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
-
-unsigned long tepTimer ;
-unsigned long buttonTimer;
-unsigned long controllerTimer;
-// voir constantes BTN_NONE, BTN_RIGHT...
-byte prevSelectedButton;
-// modes haut-niveau
-enum Mode {Pesage, Tarage, Etalonnage, Precision};
-Mode mode = Pesage;
-// menu: on peut démarer un etalonnage, étape 1: mesure à vide, étape 2: mesure de 20g
-enum SousModeEtalonnage {Menu, Etape1, Etape2};
-SousModeEtalonnage sousModeEtalonnage = Menu;
-
-//unsigned int weights[] = {1, 2, 5, 10, 20, 50};//faire un étalonnage de 0 9
-//byte selectedCalib;
-// nb de chiffres apres la virgule
-byte precisionOpts[] = {0, 1, 2, 3};
-// index
-byte selectedPrecision = 0;
-
-double ampV1;
-double ampV2;
-double calibConstA = 30;
-double calibConstB = -80;
+// envoyer stabilité
+// 1: tare
+// 2: echelonnage + données A et B
 
 
 // characters speciaux
@@ -65,18 +41,43 @@ byte SMILEY[8] = {
   B01110,
 };
 
-// lectures d'entrée et moyennage pour la sortie de l'ampli de courant
-const int numAmpReadings = 256;
-double ampReadings[numAmpReadings]; // lectures pour la sortie de l'ampli
-int ampReadIndex = 0;                   // indexe de la lecture actuelle
-double ampReadingsTotal = 0;               // total des lectures dans le tableau
+
+//Setup écran LCD
+LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
+
+unsigned long lcdTimer;
+unsigned long lcdCooldown = 500;
+unsigned long ampReadingTimer;
+unsigned long ampReadCooldown = 50;
+unsigned long buttonTimer;
+unsigned long buttonCooldown = 50;
+unsigned long controllerTimer;
+unsigned long controllerCooldown = 20;
+// voir constantes BTN_NONE, BTN_RIGHT...
+byte prevSelectedButton;
+// modes haut-niveau
+enum Mode {Pesage, Tarage, Etalonnage, Precision, Comptage};
+Mode mode = Pesage;
+// menu: on peut démarer un etalonnage, étape 1: mesure à vide, étape 2: mesure de 20g
+enum SousModeEtalonnage {Menu, Etape1, Etape2};
+SousModeEtalonnage sousModeEtalonnage = Menu;
+
+//unsigned int weights[] = {1, 2, 5, 10, 20, 50};//faire un étalonnage de 0 9
+//byte selectedCalib;
+// nb de chiffres apres la virgule
+byte precisionOpts[] = {0, 1, 2, 3};
+// index
+byte selectedPrecision = 0;
+//   coin counting mode
+String coinOpts[] = {"5c", "10c", "25c", "1$", "2$"};
+double coinMasses[] = {3.95, 1.75, 4.4, 6.27, 6.92};
+byte selectedCoin = 0;
 
 //déclaration boucle de régulation (Présentement en position)
 ArduPID myController;
-double output; // PID sortie
-double tensionPos; // PID entrée
-double setpoint = 1.445; //16.4; dis en mm
-bool isStable;
+double output; // PID sortie 0~255
+double tensionPos; // PID entrée 0~5
+double setpoint = 1.445; //tension apres ampli du capteur à 16.4 mm
 double mass;
 double taredMass;
 double tare;
@@ -84,6 +85,19 @@ double tare;
 double stabilityPeriod = 3000; // en [ms]
 double stabilityRange = 0.5; // the max differnce betweeen setpoint and the current tensionPos value that is considered stable.
 unsigned long lastStableValTime;
+bool isStable;
+
+double ampV1;
+double ampV2;
+double calibConstA = 30;
+double calibConstB = -80;
+
+// lectures d'entrée et moyennage pour la sortie de l'ampli de courant
+const int numAmpReadings = 256;
+double ampReadings[numAmpReadings]; // lectures pour la sortie de l'ampli
+int ampReadIndex = 0;                   // indexe de la lecture actuelle
+double ampReadingsTotal = 0;               // total des lectures dans le tableau
+
 
 /*
   Retourne un byte pour le bouton selectionné. Voir les constantes BTN_RIGHT, BTN_LEFT...
@@ -123,8 +137,10 @@ void cycleModeRight(){
       mode = Precision;
       break;
     case Precision:
-      mode = Pesage;
+      mode = Comptage;
       break;
+    case Comptage:
+      mode = Pesage;
   }
 }
 
@@ -134,7 +150,7 @@ void cycleModeRight(){
 void cycleModeLeft(){
   switch(mode){
     case Pesage:
-      mode = Precision;
+      mode = Comptage;
       break;
     case Tarage:
       mode = Pesage;
@@ -145,6 +161,8 @@ void cycleModeLeft(){
     case Precision:
       mode = Etalonnage;
       break;
+    case Comptage:
+      mode = Precision;
   }
 }
 
@@ -197,20 +215,15 @@ void handleInputEtalonnage(byte button){
         ampV2 = readAmpVoltage();
         calibConstA = 50.0 / (ampV2-ampV1);
         calibConstB = -ampV1 * calibConstA;
-        Serial.print("v1: ");
-        Serial.println(ampV1);
-        Serial.print("v2: ");
-        Serial.println(ampV2);
-        Serial.print("calibConstA: ");
-        Serial.println(calibConstA);
-        Serial.print("calibConstB: ");
-        Serial.println(calibConstB);
         sousModeEtalonnage = Menu;
       }
       break;    
   }
 }
 
+/*
+  Gère toutes les entrées pour le mode precision
+*/
 void handleInputPrecision(byte button){
   handleInputMenuSelect(button);
   switch(button){
@@ -225,6 +238,26 @@ void handleInputPrecision(byte button){
         selectedPrecision = sizeof(precisionOpts) - 1;
       else
         selectedPrecision--;
+  }
+}
+
+/*
+  Gère toutes les entrées pour le mode comptage de pieces
+*/
+void handleInputComptage(byte button){
+  handleInputMenuSelect(button);
+  switch(button){
+    case BTN_UP:
+      if (selectedCoin == sizeof(coinOpts)/sizeof(coinOpts[0]) - 1)
+        selectedCoin = 0;
+      else
+        selectedCoin++;
+      break;
+    case BTN_DOWN:
+      if (selectedCoin == 0)
+        selectedCoin = sizeof(coinOpts)/sizeof(coinOpts[0]) - 1;
+      else
+        selectedCoin--;
   }
 }
 
@@ -245,6 +278,9 @@ void handleInput(byte button){
     case Precision:
       handleInputPrecision(button);
       break;
+    case Comptage:
+      handleInputComptage(button);
+      break;
   }
 }
 
@@ -252,7 +288,7 @@ void handleInput(byte button){
   Reçoit et traite les données d'entrée, gère le debouncing.
 */
 void updateInput(){
-  if(millis() - buttonTimer > 50){
+  if(millis() - buttonTimer > buttonCooldown){
     int s = getSelectedButton();
     if(prevSelectedButton != s)
     {
@@ -271,6 +307,7 @@ void updateInput(){
 */
 void tareRoutine(){
   tare = mass;
+  Serial.println("ay");
 }
 
 /*
@@ -390,12 +427,26 @@ void updateLcdPrecision(){
 }
 
 /*
+  Met à jour l'LCD pour le mode de comptage
+*/
+void updateLcdComptage(){
+  lcdPrintTitle("Comptage");
+  lcd.setCursor(0, 1);
+  lcd.write(byte(0)); // up down arrows
+  lcd.setCursor(1, 1);
+  lcd.print(coinOpts[selectedCoin]);
+  int num = mass / coinMasses[selectedCoin];
+  lcd.setCursor(14, 1);
+  lcd.print(num);
+}
+
+/*
   Met à jour l'LCD
 */
 void updateLCD(){
   String lcdTopText;
-  if(millis() - tepTimer > 500){
-    tepTimer = millis();
+  if(millis() - lcdTimer > lcdCooldown){
+    lcdTimer = millis();
     lcd.clear();
     switch(mode){
       case Pesage:
@@ -409,6 +460,9 @@ void updateLCD(){
         break;
       case Precision:
         updateLcdPrecision();
+        break;
+      case Comptage:
+        updateLcdComptage();
     }
   }
 }
@@ -446,7 +500,7 @@ void updateStability()
 */
 void updateController()
 {
-  if(millis() - controllerTimer > 20)
+  if(millis() - controllerTimer > controllerCooldown)
   {
     controllerTimer = millis();
     int analogIn = analogRead(PIN_POSITION);
@@ -486,10 +540,14 @@ double readAmpVoltage(){
   Convertit une tension d'entrée de l'ampli en masse estimée avec les constantes calculées avec l'étalonnage. 
 */
 void updateAmpCurrent(){
-  double ampVoltage = readAmpVoltage();
-  // update current vars
-  mass = calibConstA * ampVoltage + calibConstB;
-  taredMass = mass - tare;
+  if(millis() - ampReadingTimer > ampReadCooldown)
+  {
+    ampReadingTimer = millis();
+    double ampVoltage = readAmpVoltage();
+    // update current vars
+    mass = calibConstA * ampVoltage + calibConstB;
+    taredMass = mass - tare;
+  }
 }
 
 /*
@@ -500,11 +558,10 @@ void receiveCom()
   if (Serial.available() > 0) { // Check if data is available to read
     char command = Serial.read(); // Read the incoming byte
     if (command == '1') {
-      // Perform action for command 1
       tareRoutine();
     } else if (command == '2') {
-      // Perform action for command 2
-      //Serial.println("Received command 2");
+      calibConstA = Serial.parseFloat();
+      calibConstB = Serial.parseFloat();
     }
     // Add more conditions for additional commands if needed
   }
