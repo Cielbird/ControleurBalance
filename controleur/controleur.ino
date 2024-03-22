@@ -71,7 +71,7 @@ double current;
 double taredCurrent;
 double tare;
 // min et max dans les dernières secondes pour déterminer la stabilité
-double stabilityPeriod = 20000; // en [ms]
+double stabilityPeriod = 3000; // en [ms]
 double stabilityRange = 0.5; // the max differnce betweeen setpoint and the current tensionPos value that is considered stable.
 unsigned long lastStableValTime;
 
