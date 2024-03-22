@@ -5,7 +5,7 @@
 //Déclaration E/S
 #define PIN_BOUTON A0
 #define PIN_POSITION A1
-#define PIN_CURRENT A2
+#define PIN_AMP A2
 #define PIN_PWM 3
 
 //constantes pour les boutons utilisés
@@ -27,12 +27,20 @@ unsigned long controllerTimer;
 byte prevSelectedButton;
 // 0: pesée, 1: tarage, 2: étalonnage
 enum Mode {Pesage, Tarage, Etalonnage};
-// étape 1: mesure à vide, étape 2: mesure de 20g
-enum SousModeEtalonnage {Etape1, Etape2};
 Mode mode = Pesage;
+// menu: on peut démarer un etalonnage, étape 1: mesure à vide, étape 2: mesure de 20g
+enum SousModeEtalonnage {Menu, Etape1, Etape2};
+SousModeEtalonnage sousModeEtalonnage = Menu;
+
 
 unsigned int weights[] = {1, 2, 5, 10, 20, 50};//faire un étalonnage de 0 9
 byte selectedCalib;
+
+double ampV1;
+double ampV2;
+double calibConstA;
+double calibConstB;
+
 
 // characters speciaux
 byte FLECHES[8] = {
@@ -55,11 +63,10 @@ byte SMILEY[8] = {
 };
 
 // input readings and running average for current output from the amplifier
-const int numCurrentReadings = 256;
-double currentReadings[numCurrentReadings]; // the readings from the analog input
-int currentReadIndex = 0;                   // the index of the current reading
-double currentInputTotal = 0;               // the running total
-double latestMaxCurrent = 0;
+const int numAmpReadings = 256;
+double ampReadings[numAmpReadings]; // the readings from the analog input
+int ampReadIndex = 0;                   // the index of the current reading
+double ampReadingsTotal = 0;               // the running total
 
 //déclaration boucle de régulation (Présentement en position)
 ArduPID myController;
@@ -125,33 +132,25 @@ void cycleModeLeft(){
   }
 }
 
-void handleInput(byte button){
+void handleInputMenuSelect(byte button) {
   switch(button){
-    case 1: // right
+    case BTN_RIGHT:
       cycleModeRight();
       break;
-    case 4: // left
+    case BTN_LEFT:
       cycleModeLeft();
       break;
-    case 2: // up
-      selectedCalib = (selectedCalib+1)%6;
-      break;
-    case 3: // down
-      if(selectedCalib==0)
-        selectedCalib = 5;
-      else
-        selectedCalib = selectedCalib-1;
-      break;
-    case 5: // select
-      switch(mode){
-        case 1: //tarage
-          tareRoutine();
-          break;
-        case 2: //étalonnage
-          calibrate();
-      }
   }
 }
+
+void handleInputTarage(byte button){
+  handleInputMenuSelect(button);
+  switch(button){
+    case BTN_SELECT:
+      tareRoutine();
+  }
+}
+
 
 void calibrate(){
   bool calibrating = true;
@@ -161,7 +160,6 @@ void calibrate(){
   lcd.print("1: Aucun poids");
   lcd.setCursor(0, 1);
   lcd.print("OK");
-  while(!)
   //
   lcd.setCursor(0, 0);
   lcd.print("Mesure a vide en");
@@ -170,6 +168,49 @@ void calibrate(){
   while(!isStable);
 
   delay(1000);
+}
+
+void handleInputEtalonnage(byte button){
+  switch(sousModeEtalonnage)
+  {
+    case Menu:
+      handleInputMenuSelect(button);
+      switch(button){
+        case BTN_SELECT:
+          sousModeEtalonnage = Etape1;
+      }
+      break;
+    case Etape1:
+      if(button == BTN_SELECT && true){
+        ampV1 = readAmpVoltage();
+        sousModeEtalonnage = Etape2;
+      }
+      break;
+    case Etape2:
+      if(button == BTN_SELECT && true){
+        ampV2 = readAmpVoltage();
+        calibConstA = 50.0 / (ampV2-ampV1);
+        calibConstB = -ampV1 * calibConstA;
+        Serial.println(calibConstA);
+        Serial.println(calibConstB);
+        sousModeEtalonnage = Menu;
+      }
+      break;    
+  }
+}
+
+void handleInput(byte button){
+  switch(mode){
+    case Pesage:
+      handleInputMenuSelect(button);
+      break;
+    case Tarage:
+      handleInputTarage(button);
+      break;
+    case Etalonnage:
+      handleInputEtalonnage(button);
+      break;
+  }
 }
 
 void tareRoutine(){
@@ -183,50 +224,83 @@ void tareRoutine(){
   delay(100);
 }
 
+void lcdPrintTitle(String title){
+  lcd.setCursor(0, 0);
+  lcd.print("<>");
+  lcd.print(title);
+}
+
+void lcdPrintStability(){
+  lcd.setCursor(15, 0);
+  if(isStable) lcd.write(byte(1)); // smiley
+}
+
+void lcdPrintOk(){
+  lcd.setCursor(0, 1);
+  lcd.print("OK");
+}
+
+void lcdPrintOkIfStable(){
+  lcd.setCursor(0, 1);
+  if(isStable)
+    lcd.print("OK");
+  else
+    lcd.print("...");
+}
+
+void lcdPrintWeight(){
+  lcd.setCursor(11, 1);
+  lcd.print(taredCurrent);
+  lcd.setCursor(15, 1);
+  lcd.print("g");
+}
+
+void updateLcdPesage(){
+  lcdPrintTitle("Peser");
+  lcdPrintStability();
+  lcdPrintWeight();
+}
+
+void updateLcdTarage(){
+  lcdPrintTitle("Tarer");
+  lcdPrintOk();
+  lcdPrintStability();
+  lcdPrintWeight();
+}
+
+void updateLcdEtalonnage(){
+  switch (sousModeEtalonnage){
+    case Menu:
+      lcdPrintTitle("Etalonnage");
+      lcdPrintOk();
+      break;
+    case Etape1:
+      lcd.setCursor(0, 0);
+      lcd.print("1)Aucun poids");
+      lcdPrintOkIfStable();
+      break;
+    case Etape2:
+      lcd.setCursor(0, 0);
+      lcd.print("2)Avec 20g");
+      lcdPrintOkIfStable();
+      break;
+  }
+}
+
 void updateLCD(){
   String lcdTopText;
   if(millis() - tepTimer > 500){
     tepTimer = millis();
-    
     lcd.clear();
-    lcd.setCursor(0, 0);
     switch(mode){
-      case Pesage: //pesée
-        lcdTopText = "< Peser >";
+      case Pesage:
+        updateLcdPesage();
         break;
-      case Tarage: //tarage
-        lcdTopText = "< Tarer >";
+      case Tarage:
+        updateLcdTarage();
         break;
-      case Etalonnage: //étalonnage
-        lcdTopText = "< Calibrer >";
-    }
-    lcd.print(lcdTopText);
-
-    lcd.setCursor(15, 0);
-    if(isStable) lcd.write(byte(1)); // smiley
-
-    switch(mode){
-      case Pesage: //pesée
-        lcd.setCursor(11, 1);
-        lcd.print(taredCurrent);
-        lcd.setCursor(15, 1);
-        lcd.print("g");
-        break;
-      case Tarage: //tarage
-        lcd.setCursor(0, 1);
-        lcd.print("OK");
-        lcd.setCursor(11, 1);
-        lcd.print(taredCurrent);
-        lcd.setCursor(15, 1);
-        lcd.print("g");
-        break;
-      case Etalonnage: //étalonnage
-        lcd.setCursor(0, 1);
-        lcd.print("OK");
-        lcd.setCursor(12, 1);
-        lcd.print(weights[selectedCalib]);
-        lcd.print("g");
-        lcd.write(byte(0)); // fleches up down
+      case Etalonnage:
+        updateLcdEtalonnage();
     }
   }
 }
@@ -288,22 +362,24 @@ void updateController()
   }
 }
 
-
-void readCurrent(){
-  int currentReading = analogRead(PIN_CURRENT);
-  currentInputTotal = currentInputTotal - currentReadings[currentReadIndex];
-  currentReadings[currentReadIndex] = currentReading;
-  currentInputTotal = currentInputTotal + currentReadings[currentReadIndex];
-  currentReadIndex++;
+double readAmpVoltage(){
+  int ampReading = analogRead(PIN_AMP);
+  ampReadingsTotal = ampReadingsTotal - ampReadings[ampReadIndex];
+  ampReadings[ampReadIndex] = ampReading;
+  ampReadingsTotal = ampReadingsTotal + ampReadings[ampReadIndex];
+  ampReadIndex++;
   // wrap around at the end
-  if (currentReadIndex >= numCurrentReadings) {
-    currentReadIndex = 0;
+  if (ampReadIndex >= numAmpReadings) {
+    ampReadIndex = 0;
   }
-  // Calculate the average:
-  double inputAverage = currentInputTotal / numCurrentReadings;
+  // Calculate the average and convert to voltage
+  return (ampReadingsTotal / numAmpReadings) * (5.0 / 1023.0);  
+}
 
+void updateAmpCurrent(){
+  double ampVoltage = readAmpVoltage();
   // update current vars
-  current = inputAverage * (5.0 / 1023.0) * 50.0 *50.0 /36.45;
+  current = ampVoltage * 50.0 *50.0 /36.45;
   taredCurrent = current - tare;
 }
 
@@ -354,7 +430,7 @@ void setup()
 void loop()
 {
   // read values from current input pin
-  readCurrent();
+  updateAmpCurrent();
 
   // update input and output of the PID controller
   updateController();
