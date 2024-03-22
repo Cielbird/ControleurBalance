@@ -18,23 +18,22 @@
 
 
 //Setup écran LCD
-LiquidCrystal lcd(8, 9, 4, 5, 6, 7);        // select the pins used on the LCD panel
+LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 
 unsigned long tepTimer ;
 unsigned long buttonTimer;
 unsigned long controllerTimer;
-// 1:right, 2:up, 3:down, 4:left, 5:select, 0:nothing
+// voir constantes BTN_NONE, BTN_RIGHT...
 byte prevSelectedButton;
-// 0: pesée, 1: tarage, 2: étalonnage
+// modes haut-niveau
 enum Mode {Pesage, Tarage, Etalonnage};
 Mode mode = Pesage;
 // menu: on peut démarer un etalonnage, étape 1: mesure à vide, étape 2: mesure de 20g
 enum SousModeEtalonnage {Menu, Etape1, Etape2};
 SousModeEtalonnage sousModeEtalonnage = Menu;
 
-
-unsigned int weights[] = {1, 2, 5, 10, 20, 50};//faire un étalonnage de 0 9
-byte selectedCalib;
+//unsigned int weights[] = {1, 2, 5, 10, 20, 50};//faire un étalonnage de 0 9
+//byte selectedCalib;
 
 double ampV1;
 double ampV2;
@@ -62,16 +61,16 @@ byte SMILEY[8] = {
   B01110,
 };
 
-// input readings and running average for current output from the amplifier
+// lectures d'entrée et moyennage pour la sortie de l'ampli de courant
 const int numAmpReadings = 256;
-double ampReadings[numAmpReadings]; // the readings from the analog input
-int ampReadIndex = 0;                   // the index of the current reading
-double ampReadingsTotal = 0;               // the running total
+double ampReadings[numAmpReadings]; // lectures pour la sortie de l'ampli
+int ampReadIndex = 0;                   // indexe de la lecture actuelle
+double ampReadingsTotal = 0;               // total des lectures dans le tableau
 
 //déclaration boucle de régulation (Présentement en position)
 ArduPID myController;
-double output; // PID output
-double tensionPos; // PID input
+double output; // PID sortie
+double tensionPos; // PID entrée
 double setpoint = 1.445; //16.4; dis en mm
 bool isStable;
 double current;
@@ -83,7 +82,7 @@ double stabilityRange = 0.5; // the max differnce betweeen setpoint and the curr
 unsigned long lastStableValTime;
 
 /*
-  Returns a byte for the currently selected button. See defined constants BTN_RIGHT, BTN_LEFT...
+  Retourne un byte pour le bouton selectionné. Voir les constantes BTN_RIGHT, BTN_LEFT...
 */
 byte getSelectedButton(){
   // val is from 0 to 1023
@@ -106,7 +105,7 @@ byte getSelectedButton(){
 }
 
 /*
-  Cycles right through the top level modes
+  Passe à travers les modes haut-niveau à la droite
 */
 void cycleModeRight(){
   switch(mode){
@@ -123,7 +122,7 @@ void cycleModeRight(){
 }
 
 /*
-  Cycles left through the top level modes
+  Passe à travers les modes haut-niveau à la gauche
 */
 void cycleModeLeft(){
   switch(mode){
@@ -140,7 +139,7 @@ void cycleModeLeft(){
 }
 
 /*
-  Handles input for cycling through top level modes, ie. left right mode selection
+  Gère la selection droite-gauche de mode.
 */
 void handleInputMenuSelect(byte button) {
   switch(button){
@@ -154,7 +153,7 @@ void handleInputMenuSelect(byte button) {
 }
 
 /*
-  Handles all input for the tare mode
+  Gère toutes les entrées pour le mode tare
 */
 void handleInputTarage(byte button){
   handleInputMenuSelect(button);
@@ -165,7 +164,7 @@ void handleInputTarage(byte button){
 }
 
 /*
-  Handles all input for the calibration mode
+  Gère toutes les entrées pour le mode étalonnage
 */
 void handleInputEtalonnage(byte button){
   switch(sousModeEtalonnage)
@@ -197,7 +196,7 @@ void handleInputEtalonnage(byte button){
 }
 
 /*
-  Handles all input
+  Gère toutes les entrées
 */
 void handleInput(byte button){
   switch(mode){
@@ -214,7 +213,7 @@ void handleInput(byte button){
 }
 
 /*
-  Gets and handles input, handles debouncing.
+  Reçoit et traite les données d'entrée, gère le debouncing.
 */
 void updateInput(){
   if(millis() - buttonTimer > 50){
@@ -232,14 +231,14 @@ void updateInput(){
 }
 
 /*
-  Tares the balance
+  Tare la balance
 */
-void tare(){
+void tareRoutine(){
   tare = current;
 }
 
 /*
-  Prints a menu title to the LCD: "<>myTitle" at the top left of the LCD
+  Imprime un titre de menu sur le LCD : "<>monTitre" en haut à gauche du LCD
 */
 void lcdPrintTitle(String title){
   lcd.setCursor(0, 0);
@@ -248,7 +247,7 @@ void lcdPrintTitle(String title){
 }
 
 /*
-  Prints a smiley to the top right of the LCD if the balance is stable
+  Imprime un smiley en haut à droite du LCD
 */
 void lcdPrintStability(){
   lcd.setCursor(15, 0);
@@ -256,7 +255,7 @@ void lcdPrintStability(){
 }
 
 /*
-  Prints an OK at the bottom left of the LCD
+  Imprime un OK en bas à gauche du LCD
 */
 void lcdPrintOk(){
   lcd.setCursor(0, 1);
@@ -264,7 +263,7 @@ void lcdPrintOk(){
 }
 
 /*
-  Prints an OK at the bottom left of the LCD if the balance is stable, ... otherwise 
+  Imprime un OK en bas à gauche du LCD si la balance est stable, ... sinon 
 */
 void lcdPrintOkIfStable(){
   lcd.setCursor(0, 1);
@@ -275,7 +274,7 @@ void lcdPrintOkIfStable(){
 }
 
 /*
-  Prints the calculated weight at the bottom right of the LCD
+  Imprime la masse calculée en bas à droite du LCD
 */
 void lcdPrintWeight(){
   lcd.setCursor(11, 1);
@@ -285,7 +284,7 @@ void lcdPrintWeight(){
 }
 
 /*
-  Updates the LCD for the pesage mode
+  Met à jour l'LCD pour le mode pesage
 */
 void updateLcdPesage(){
   lcdPrintTitle("Peser");
@@ -294,7 +293,7 @@ void updateLcdPesage(){
 }
 
 /*
-  Updates the LCD for the tarage mode
+  Met à jour l'LCD pour le mode tarage
 */
 void updateLcdTarage(){
   lcdPrintTitle("Tarer");
@@ -304,7 +303,7 @@ void updateLcdTarage(){
 }
 
 /*
-  Updates the LCD for the etalonnage mode
+  Met à jour l'LCD pour le mode étalonnage
 */
 void updateLcdEtalonnage(){
   switch (sousModeEtalonnage){
@@ -326,7 +325,7 @@ void updateLcdEtalonnage(){
 }
 
 /*
-  Updates the LCD
+  Met à jour l'LCD
 */
 void updateLCD(){
   String lcdTopText;
@@ -347,7 +346,7 @@ void updateLCD(){
 }
 
 /*
-  Converts 10 bit analog input input to voltage
+  Convertit l'entrée 10 bits analogue en tension
 */
 double analogInToVoltage(int in){
   // convert arduino input to ampli output
@@ -355,9 +354,9 @@ double analogInToVoltage(int in){
 }
 
 /*
-  Reads latest capteur reading and evaluates the stability, updates the isStable variable
+  Evalue la stabilité du system, met à jour la variable isStable
 */
-void updateStability(double latestVal)
+void updateStability()
 {
   if (abs(tensionPos - setpoint) > stabilityRange)
   {
@@ -374,8 +373,8 @@ void updateStability(double latestVal)
 }
 
 /*
-  Reads the capteur input value, computes the PID controller, and updates the output. 
-  Updates the stability variable isStable.
+  Lit la valeur analogue du capteur, effectue le calcul du PID, et met à jour la sortie.
+  Met la variable de stabilité isStable à jour.
 */
 void updateController()
 {
@@ -388,7 +387,7 @@ void updateController()
     analogWrite(PIN_PWM, output); //Output for Vamp_in
 
     // check stability
-    updateStability(tensionPos);
+    updateStability();
     //Pour afficher les valeur de PID, et input, output, seulement enlever les commentaire.
     /*myController.debug(&Serial, "myController", PRINT_INPUT    | // Can include or comment out any of these terms to print
                                                 PRINT_OUTPUT   | // in the Serial plotter
@@ -399,7 +398,7 @@ void updateController()
 }
 
 /*
-  Reads the amp input, applies an averaging, and returns the smoothed voltage
+  Lit l'entrée de l'ampli, applique un moyennage, et retourne une tension moyennée.
 */
 double readAmpVoltage(){
   int ampReading = analogRead(PIN_AMP);
@@ -416,7 +415,7 @@ double readAmpVoltage(){
 }
 
 /*
-  Converts the amp input voltage to the estimated weight using the calibration constants
+  Convertit une tension d'entrée de l'ampli en masse estimée avec les constantes calculées avec l'étalonnage. 
 */
 void updateAmpCurrent(){
   double ampVoltage = readAmpVoltage();
@@ -426,7 +425,7 @@ void updateAmpCurrent(){
 }
 
 /*
-  Checks for incoming serial data, if any, handles the commands.
+  Vérifie les données série entrantes, si elles existent, et traite les commandes.
 */
 void receiveCom()
 {
@@ -444,7 +443,7 @@ void receiveCom()
 }
 
 /*
-  Sends data to the PC with the following format: "masse: [masse],tension position: [tension pos]"
+  Envoie les données au PC avec le format suivant : "masse : [masse],tension position : [tension pos]"
 */
 void sendData()
 {
