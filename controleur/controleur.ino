@@ -26,7 +26,7 @@ unsigned long controllerTimer;
 // voir constantes BTN_NONE, BTN_RIGHT...
 byte prevSelectedButton;
 // modes haut-niveau
-enum Mode {Pesage, Tarage, Etalonnage};
+enum Mode {Pesage, Tarage, Etalonnage, Precision};
 Mode mode = Pesage;
 // menu: on peut démarer un etalonnage, étape 1: mesure à vide, étape 2: mesure de 20g
 enum SousModeEtalonnage {Menu, Etape1, Etape2};
@@ -34,11 +34,15 @@ SousModeEtalonnage sousModeEtalonnage = Menu;
 
 //unsigned int weights[] = {1, 2, 5, 10, 20, 50};//faire un étalonnage de 0 9
 //byte selectedCalib;
+// nb de chiffres apres la virgule
+byte precisionOpts[] = {0, 1, 2, 3};
+// index
+byte selectedPrecision = 0;
 
 double ampV1;
 double ampV2;
-double calibConstA;
-double calibConstB;
+double calibConstA = 30;
+double calibConstB = -80;
 
 
 // characters speciaux
@@ -73,8 +77,8 @@ double output; // PID sortie
 double tensionPos; // PID entrée
 double setpoint = 1.445; //16.4; dis en mm
 bool isStable;
-double current;
-double taredCurrent;
+double mass;
+double taredMass;
 double tare;
 // min et max dans les dernières secondes pour déterminer la stabilité
 double stabilityPeriod = 3000; // en [ms]
@@ -116,6 +120,9 @@ void cycleModeRight(){
       mode = Etalonnage;
       break;
     case Etalonnage:
+      mode = Precision;
+      break;
+    case Precision:
       mode = Pesage;
       break;
   }
@@ -127,13 +134,16 @@ void cycleModeRight(){
 void cycleModeLeft(){
   switch(mode){
     case Pesage:
-      mode = Etalonnage;
+      mode = Precision;
       break;
     case Tarage:
       mode = Pesage;
       break;
     case Etalonnage:
       mode = Tarage;
+      break;
+    case Precision:
+      mode = Etalonnage;
       break;
   }
 }
@@ -187,11 +197,34 @@ void handleInputEtalonnage(byte button){
         ampV2 = readAmpVoltage();
         calibConstA = 50.0 / (ampV2-ampV1);
         calibConstB = -ampV1 * calibConstA;
+        Serial.print("v1: ");
+        Serial.println(ampV1);
+        Serial.print("v2: ");
+        Serial.println(ampV2);
+        Serial.print("calibConstA: ");
         Serial.println(calibConstA);
+        Serial.print("calibConstB: ");
         Serial.println(calibConstB);
         sousModeEtalonnage = Menu;
       }
       break;    
+  }
+}
+
+void handleInputPrecision(byte button){
+  handleInputMenuSelect(button);
+  switch(button){
+    case BTN_UP:
+      if (selectedPrecision == sizeof(precisionOpts) - 1)
+        selectedPrecision = 0;
+      else
+        selectedPrecision++;
+      break;
+    case BTN_DOWN:
+      if (selectedPrecision == 0)
+        selectedPrecision = sizeof(precisionOpts) - 1;
+      else
+        selectedPrecision--;
   }
 }
 
@@ -208,6 +241,9 @@ void handleInput(byte button){
       break;
     case Etalonnage:
       handleInputEtalonnage(button);
+      break;
+    case Precision:
+      handleInputPrecision(button);
       break;
   }
 }
@@ -234,7 +270,7 @@ void updateInput(){
   Tare la balance
 */
 void tareRoutine(){
-  tare = current;
+  tare = mass;
 }
 
 /*
@@ -276,9 +312,25 @@ void lcdPrintOkIfStable(){
 /*
   Imprime la masse calculée en bas à droite du LCD
 */
-void lcdPrintWeight(){
-  lcd.setCursor(11, 1);
-  lcd.print(taredCurrent);
+void lcdPrintMass(){
+  byte precision = precisionOpts[selectedPrecision];
+
+  // convertir double en str
+  byte decimalPosInLcd;
+  if(precision==0) // no space for dot
+    decimalPosInLcd = 15;
+  else
+    decimalPosInLcd = 14 - precision;
+  char massStr[8]; // taille max de la zone qu'on accorde au poids
+  dtostrf(taredMass, 7, precision, massStr); // Format the double to string with 7 total characters and 2 decimal places
+  byte decimalPosInStr = 0;
+  for(int i=0; massStr[i]!='.'&&massStr[i]!='\0'; i++)
+  {
+    decimalPosInStr++;
+  }
+  byte startPos = decimalPosInLcd - decimalPosInStr;
+  lcd.setCursor(startPos, 1);
+  lcd.print(massStr);
   lcd.setCursor(15, 1);
   lcd.print("g");
 }
@@ -289,7 +341,7 @@ void lcdPrintWeight(){
 void updateLcdPesage(){
   lcdPrintTitle("Peser");
   lcdPrintStability();
-  lcdPrintWeight();
+  lcdPrintMass();
 }
 
 /*
@@ -299,7 +351,7 @@ void updateLcdTarage(){
   lcdPrintTitle("Tarer");
   lcdPrintOk();
   lcdPrintStability();
-  lcdPrintWeight();
+  lcdPrintMass();
 }
 
 /*
@@ -325,6 +377,19 @@ void updateLcdEtalonnage(){
 }
 
 /*
+  Met à jour l'LCD pour le mode précision
+*/
+void updateLcdPrecision(){
+  lcdPrintTitle("Precision");
+  lcd.setCursor(0, 1);
+  lcd.write(byte(0)); // up down arrows
+  lcd.setCursor(1, 1);
+  lcd.print(precisionOpts[selectedPrecision]);
+  lcd.print(" ch");
+  lcdPrintMass();
+}
+
+/*
   Met à jour l'LCD
 */
 void updateLCD(){
@@ -341,6 +406,9 @@ void updateLCD(){
         break;
       case Etalonnage:
         updateLcdEtalonnage();
+        break;
+      case Precision:
+        updateLcdPrecision();
     }
   }
 }
@@ -420,8 +488,8 @@ double readAmpVoltage(){
 void updateAmpCurrent(){
   double ampVoltage = readAmpVoltage();
   // update current vars
-  current = calibConstA * ampVoltage + calibConstB;
-  taredCurrent = current - tare;
+  mass = calibConstA * ampVoltage + calibConstB;
+  taredMass = mass - tare;
 }
 
 /*
@@ -452,7 +520,7 @@ void sendData()
 
 void setup()
 {
-  Serial.begin(115200);  
+  Serial.begin(115200);
 
   //Setup LCD screen
   lcd.begin(16, 2);
