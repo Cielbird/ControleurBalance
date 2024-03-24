@@ -1,12 +1,21 @@
 #include "ArduPID.h"
 #include "LiquidCrystal.h"
 
+// 
+#define UNO // pour tester sur un UNO
+//#define MEGA // pour le vrai prototype PCB avec le MEGA
 
 //Déclaration E/S
 #define PIN_BOUTON A0
-#define PIN_POSITION A1
 #define PIN_AMP A2
-#define PIN_PWM 3
+#ifdef UNO
+  #define PIN_POSITION A1
+  #define PIN_PWM 3
+#endif
+#ifdef MEGA
+  #define PIN_POSITION A9
+  #define PIN_PWM 12
+#endif
 
 //constantes pour les boutons utilisés
 #define BTN_NONE 0
@@ -56,8 +65,9 @@ unsigned long controllerCooldown = 20;
 // voir constantes BTN_NONE, BTN_RIGHT...
 byte prevSelectedButton;
 // modes haut-niveau
-enum Mode {Pesage, Tarage, Etalonnage, Precision, Comptage};
-Mode mode = Pesage;
+enum Mode {Pesage, Comptage, Tarage, Etalonnage, Precision};
+const byte NUM_MODES = 5;
+Mode mode;
 // menu: on peut démarer un etalonnage, étape 1: mesure à vide, étape 2: mesure de 20g
 enum SousModeEtalonnage {Menu, Etape1, Etape2};
 SousModeEtalonnage sousModeEtalonnage = Menu;
@@ -126,44 +136,18 @@ byte getSelectedButton(){
   Passe à travers les modes haut-niveau à la droite
 */
 void cycleModeRight(){
-  switch(mode){
-    case Pesage:
-      mode = Tarage;
-      break;
-    case Tarage:
-      mode = Etalonnage;
-      break;
-    case Etalonnage:
-      mode = Precision;
-      break;
-    case Precision:
-      mode = Comptage;
-      break;
-    case Comptage:
-      mode = Pesage;
-  }
+  mode = (Mode)(mode + 1);
+  if(mode == NUM_MODES)
+    mode = 0;
 }
 
 /*
   Passe à travers les modes haut-niveau à la gauche
 */
 void cycleModeLeft(){
-  switch(mode){
-    case Pesage:
-      mode = Comptage;
-      break;
-    case Tarage:
-      mode = Pesage;
-      break;
-    case Etalonnage:
-      mode = Tarage;
-      break;
-    case Precision:
-      mode = Etalonnage;
-      break;
-    case Comptage:
-      mode = Precision;
-  }
+  if(mode == 0)
+    mode = NUM_MODES;
+  mode = (Mode)(mode - 1);
 }
 
 /*
