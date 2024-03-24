@@ -82,6 +82,7 @@ byte selectedPrecision = 0;
 String coinOpts[] = {"5c", "10c", "25c", "1$", "2$"};
 double coinMasses[] = {3.95, 1.75, 4.4, 6.27, 6.92};
 byte selectedCoin = 0;
+byte numCoinTypes = sizeof(coinOpts)/sizeof(coinOpts[0]);
 
 //déclaration boucle de régulation (Présentement en position)
 ArduPID myController;
@@ -232,14 +233,14 @@ void handleInputComptage(byte button){
   handleInputMenuSelect(button);
   switch(button){
     case BTN_UP:
-      if (selectedCoin == sizeof(coinOpts)/sizeof(coinOpts[0]) - 1)
+      if (selectedCoin == numCoinTypes - 1)
         selectedCoin = 0;
       else
         selectedCoin++;
       break;
     case BTN_DOWN:
       if (selectedCoin == 0)
-        selectedCoin = sizeof(coinOpts)/sizeof(coinOpts[0]) - 1;
+        selectedCoin = numCoinTypes - 1;
       else
         selectedCoin--;
   }
@@ -291,7 +292,6 @@ void updateInput(){
 */
 void tareRoutine(){
   tare = mass;
-  Serial.println("ay");
 }
 
 /*
@@ -356,12 +356,34 @@ void lcdPrintMass(){
   lcd.print("g");
 }
 
+String getClosestCoin(double mass)
+{
+  int closestCoinType;
+  double massDiff;
+  double smallestMassDiff;
+  for(int i = 0; i<numCoinTypes; i++)
+  {
+    massDiff = abs(coinMasses[i] - mass);
+    if(i==0 || massDiff < smallestMassDiff)
+    {
+      closestCoinType = i;
+      smallestMassDiff = massDiff;
+    }
+  }
+  if(smallestMassDiff < 0.5){
+    return coinOpts[closestCoinType];
+  }
+  return "...";
+}
+
 /*
   Met à jour l'LCD pour le mode pesage
 */
 void updateLcdPesage(){
   lcdPrintTitle("Peser");
   lcdPrintStability();
+  lcd.setCursor(0, 1);
+  lcd.print(getClosestCoin(mass));
   lcdPrintMass();
 }
 
