@@ -65,8 +65,8 @@ unsigned long controllerCooldown = 20;
 // voir constantes BTN_NONE, BTN_RIGHT...
 byte prevSelectedButton;
 // modes haut-niveau
-enum Mode {Pesage, Comptage, Tarage, Etalonnage, Precision};
-const byte NUM_MODES = 5;
+enum Mode {Pesage, Comptage, Tarage, Etalonnage, Precision, Unitees};
+const byte NUM_MODES = 6;
 Mode mode;
 // menu: on peut démarer un etalonnage, étape 1: mesure à vide, étape 2: mesure de 20g
 enum SousModeEtalonnage {Menu, Etape1, Etape2};
@@ -83,6 +83,13 @@ String coinOpts[] = {"5c", "10c", "25c", "1$", "2$"};
 double coinMasses[] = {3.95, 1.75, 4.4, 6.27, 6.92};
 byte selectedCoin = 0;
 byte numCoinTypes = sizeof(coinOpts)/sizeof(coinOpts[0]);
+
+// units
+String unitOpts[] = {"g", "oz"};
+// ratio of the unit to gram
+double unitConversions[] = {1, 0.035274, 0.01};
+byte selectedUnit = 0;
+byte numUnits = sizeof(unitOpts)/sizeof(unitOpts[0]);
 
 //déclaration boucle de régulation (Présentement en position)
 ArduPID myController;
@@ -247,6 +254,26 @@ void handleInputComptage(byte button){
 }
 
 /*
+  Gère toutes les entrées pour le mode selection de unitées
+*/
+void handleInputUnitees(byte button){
+  handleInputMenuSelect(button);
+  switch(button){
+    case BTN_UP:
+      if (selectedUnit == numUnits - 1)
+        selectedUnit = 0;
+      else
+        selectedUnit++;
+      break;
+    case BTN_DOWN:
+      if (selectedUnit == 0)
+        selectedUnit = numUnits - 1;
+      else
+        selectedUnit--;
+  }
+}
+
+/*
   Gère toutes les entrées
 */
 void handleInput(byte button){
@@ -266,6 +293,8 @@ void handleInput(byte button){
     case Comptage:
       handleInputComptage(button);
       break;
+    case Unitees:
+      handleInputUnitees(button);
   }
 }
 
@@ -339,11 +368,12 @@ void lcdPrintMass(){
   // convertir double en str
   byte decimalPosInLcd;
   if(precision==0) // no space for dot
-    decimalPosInLcd = 15;
+    decimalPosInLcd = 14;
   else
-    decimalPosInLcd = 14 - precision;
+    decimalPosInLcd = 13 - precision;
   char massStr[8]; // taille max de la zone qu'on accorde au poids
-  dtostrf(taredMass, 7, precision, massStr); // Format the double to string with 7 total characters and 2 decimal places
+  double convertedTaredMass = taredMass * unitConversions[selectedUnit];
+  dtostrf(convertedTaredMass, 7, precision, massStr); // Format the double to string with 7 total characters and 2 decimal places
   byte decimalPosInStr = 0;
   for(int i=0; massStr[i]!='.'&&massStr[i]!='\0'; i++)
   {
@@ -352,8 +382,8 @@ void lcdPrintMass(){
   byte startPos = decimalPosInLcd - decimalPosInStr;
   lcd.setCursor(startPos, 1);
   lcd.print(massStr);
-  lcd.setCursor(15, 1);
-  lcd.print("g");
+  lcd.setCursor(14, 1);
+  lcd.print(unitOpts[selectedUnit]);
 }
 
 String getClosestCoin(double mass)
@@ -447,6 +477,18 @@ void updateLcdComptage(){
 }
 
 /*
+  Met à jour l'LCD pour le mode de comptage
+*/
+void updateLcdUnitees(){
+  lcdPrintTitle("Unitees");
+  lcd.setCursor(0, 1);
+  lcd.write(byte(0)); // up down arrows
+  lcd.setCursor(1, 1);
+  lcd.print(unitOpts[selectedUnit]);
+  lcdPrintMass();
+}
+
+/*
   Met à jour l'LCD
 */
 void updateLCD(){
@@ -469,6 +511,9 @@ void updateLCD(){
         break;
       case Comptage:
         updateLcdComptage();
+        break;
+      case Unitees:
+        updateLcdUnitees();
     }
   }
 }
