@@ -14,8 +14,8 @@
 #endif
 //https://docs.arduino.cc/retired/hacking/hardware/PinMapping2560/
 #ifdef MEGA
-#define PIN_POSITION 9 // Pin 9
-#define PIN_PWM 12
+#define PIN_POSITION A9 // Analog in 9
+#define PIN_PWM 12 // Digital 12
 #endif
 
 //constantes pour les boutons utilisés
@@ -51,13 +51,13 @@ byte SMILEY[8] = {
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 
 unsigned long lcdTimer;
-const unsigned long LCD_INTERVAL = 500;
+const unsigned long LCD_INTERVAL = 500; // temps entre chaque mise à jour du LCD [ms]
 unsigned long ampReadingTimer;
-const unsigned long AMP_READ_INTERVAL = 50;
+const unsigned long AMP_READ_INTERVAL = 5; // temps entre chaque lecture de l'ampli [ms]
 unsigned long buttonTimer;
-const unsigned long BUTTON_INTERVAL = 50;
+const unsigned long BUTTON_INTERVAL = 50; // temps minimum entre chaque input différent [ms] 
 unsigned long controllerTimer;
-const unsigned long CONTROLLER_INTERVAL = 20;
+const unsigned long CONTROLLER_INTERVAL = 20; // temps de mise à jour du controleur [ms]
 // voir constantes BTN_NONE, BTN_RIGHT...
 byte prevSelectedButton;
 // modes haut-niveau
@@ -88,6 +88,7 @@ String coinOpts[] = { "5c", "10c", "25c", "1$", "2$" };
 double coinMasses[] = { 3.95, 1.75, 4.4, 6.27, 6.92 };
 byte selectedCoin = 0;
 byte numCoinTypes = sizeof(coinOpts) / sizeof(coinOpts[0]);
+const double COIN_IDENT_RANGE = 0.5;
 
 // units
 String unitOpts[] = { "g", "oz" };
@@ -105,22 +106,22 @@ double mass;
 double taredMass;
 double tare;
 // min et max dans les dernières secondes pour déterminer la stabilité
-double stabilityPeriod = 3000;  // en [ms]
-double stabilityRange = 0.5;    // the max differnce betweeen setpoint and the current tensionPos value that is considered stable.
+const double stabilityPeriod = 3000;  // en [ms]
+const double STABLE_RANGE = 0.2;    // the max differnce betweeen setpoint and the current tensionPos value that is considered stable.
 unsigned long lastStableValTime;
 bool isStable;
 
 double ampV1;
 double ampV2;
-double calibConstA = 30;
-double calibConstB = -80;
+double calibConstA = 67.08;
+double calibConstB = -56.72;
 
 // lectures d'entrée et moyennage pour la sortie de l'ampli de courant
-const int maxNumAmpReadings = 256;
-int numAmpReadings = maxNumAmpReadings;
-double ampReadings[maxNumAmpReadings];  // lectures pour la sortie de l'ampli
-int ampReadIndex = 0;                   // indexe de la lecture actuelle
-double ampReadingsTotal = 0;            // total des lectures dans le tableau
+const unsigned int MAX_NUM_AMP_READINGS = 256;
+size_t numAmpReadings = 100;
+unsigned int ampReadings[MAX_NUM_AMP_READINGS];  // lectures pour la sortie de l'ampli
+size_t ampReadIndex = 0;                   // indexe de la lecture actuelle
+unsigned long ampReadingsTotal = 0;            // total des lectures dans le tableau
 
 
 /*
@@ -202,23 +203,26 @@ void handleInputEtalonnage(byte button) {
       }
       break;
     case Etape1:
-      if (button == BTN_SELECT && true) {
+      if (button == BTN_SELECT && isStable) {
         ampV1 = readAmpVoltage();
         sousModeEtalonnage = Etape2;
       }
       break;
     case Etape2:
-      if (button == BTN_SELECT && true) {
+      if (button == BTN_SELECT && isStable) {
         ampV2 = readAmpVoltage();
-        calibConstA = 50.0 / (ampV2 - ampV1);
+        calibConstA = 20.0 / (ampV2 - ampV1);
         calibConstB = -ampV1 * calibConstA;
         sousModeEtalonnage = Etape3;
       }
       break;
     case Etape3:
-      if (button == BTN_SELECT && true) {
+      if (button == BTN_SELECT && isStable) {
         // DO NOTHING, à faire plus tard
         sousModeEtalonnage = Menu;
+        // return to main menu, reset tare
+        tare = 0;
+        mode = Pesage;
       }
       break;
   }
@@ -289,6 +293,7 @@ void handleInputUnitees(byte button) {
   À utiliser quand on change numAmpReadings
 */
 void clearAveragingFields(int clearToIndex) {
+  ampReadIndex = 0;
   for (int i = 0; i <= clearToIndex; i++) {
     ampReadings[i] = 0;
   }
@@ -304,14 +309,14 @@ void handleInputMoyennage(byte button) {
   switch (button) {
     case BTN_UP:
       numAmpReadings += INTERVAL;
-      if (numAmpReadings >= maxNumAmpReadings)
-        numAmpReadings = maxNumAmpReadings;
+      if (numAmpReadings >= MAX_NUM_AMP_READINGS)
+        numAmpReadings = MAX_NUM_AMP_READINGS;
       clearAveragingFields(numAmpReadings);
       break;
     case BTN_DOWN:
       numAmpReadings -= INTERVAL;
-      if (numAmpReadings <= 0)
-        numAmpReadings = 0;
+      if (numAmpReadings <= 1)
+        numAmpReadings = 1;
       clearAveragingFields(numAmpReadings);
       break;
   }
@@ -441,7 +446,7 @@ String getClosestCoin(double mass) {
       smallestMassDiff = massDiff;
     }
   }
-  if (smallestMassDiff < 0.5) {
+  if (smallestMassDiff < COIN_IDENT_RANGE) {
     return coinOpts[closestCoinType];
   }
   return "...";
@@ -483,6 +488,11 @@ void updateLcdEtalonnage() {
       lcdPrintOkIfStable();
       break;
     case Etape2:
+      lcd.setCursor(0, 0);
+      lcd.print("3)Avec 20g");
+      lcdPrintOkIfStable();
+      break;
+    case Etape3:
       lcd.setCursor(0, 0);
       lcd.print("3)Avec 50g");
       lcdPrintOkIfStable();
@@ -537,7 +547,8 @@ void updateLcdMoyennage() {
   lcd.setCursor(0, 1);
   lcd.write(byte(0));  // up down arrows
   lcd.setCursor(1, 1);
-  lcd.print(numAmpReadings);
+  lcd.print(numAmpReadings * AMP_READ_INTERVAL);
+  lcd.print("ms");
   lcdPrintMass();
 }
 
@@ -577,7 +588,7 @@ void updateLCD() {
 /*
   Convertit l'entrée 10 bits analogue en tension
 */
-double analogInToVoltage(int in) {
+double analogInToVoltage(double in) {
   // convert arduino input to ampli output
   return in * (5.0 / 1023.0);
 }
@@ -586,7 +597,7 @@ double analogInToVoltage(int in) {
   Evalue la stabilité du system, met à jour la variable isStable
 */
 void updateStability() {
-  if (abs(tensionPos - setpoint) > stabilityRange) {
+  if (abs(tensionPos - setpoint) > STABLE_RANGE) {
     lastStableValTime = 0;
     isStable = false;
   } else {  // value in range of stability
@@ -607,7 +618,7 @@ void updateController() {
     int analogIn = analogRead(PIN_POSITION);
     tensionPos = analogInToVoltage(analogIn);
     myController.compute();
-    analogWrite(PIN_PWM, 255);  //Output for Vamp_in
+    analogWrite(PIN_PWM, output);  //Output for Vamp_in
 
     // check stability
     updateStability();
@@ -634,7 +645,9 @@ double readAmpVoltage() {
     ampReadIndex = 0;
   }
   // Calculate the average and convert to voltage
-  return analogInToVoltage(ampReadingsTotal / numAmpReadings);
+  double avgReading = (double) (ampReadingsTotal) / (double) (numAmpReadings);
+  Serial.println(avgReading);
+  return analogInToVoltage(avgReading);
 }
 
 /*
@@ -656,9 +669,9 @@ void updateAmpCurrent() {
 void receiveCom() {
   if (Serial.available() > 0) {    // Check if data is available to read
     char command = Serial.read();  // Read the incoming byte
-    if (command == '1') {
+    if (command == 't') {
       tareRoutine();
-    } else if (command == '2') {
+    } else if (command == 'e') {
       calibConstA = Serial.parseFloat();
       calibConstB = Serial.parseFloat();
     }
@@ -670,7 +683,9 @@ void receiveCom() {
   Envoie les données au PC avec le format suivant : "masse : [masse],tension position : [tension pos]"
 */
 void sendData() {
-  //Serial.println( "masse: " + String(taredCurrent) + "," + "tension position: " + String(tensionPos));
+  Serial.println(
+    "masse: " + String(taredMass) + "," + 
+    "stable: " + String(isStable));
 }
 
 void setup() {
@@ -711,5 +726,5 @@ void loop() {
 
   // read incoming commands
   receiveCom();
-  sendData();
+  //sendData();
 }
