@@ -2,8 +2,8 @@
 #include "LiquidCrystal.h"
 
 //
-#define UNO  // pour tester sur un UNO
-//#define MEGA // pour le vrai prototype PCB avec le MEGA
+//#define UNO  // pour tester sur un UNO
+#define MEGA // pour le vrai prototype PCB avec le MEGA
 
 //Déclaration E/S
 #define PIN_BOUTON A0
@@ -12,8 +12,9 @@
 #define PIN_POSITION A1
 #define PIN_PWM 3
 #endif
+//https://docs.arduino.cc/retired/hacking/hardware/PinMapping2560/
 #ifdef MEGA
-#define PIN_POSITION A9
+#define PIN_POSITION 9 // Pin 9
 #define PIN_PWM 12
 #endif
 
@@ -24,11 +25,6 @@
 #define BTN_DOWN 3
 #define BTN_LEFT 4
 #define BTN_SELECT 5
-
-// envoyer stabilité
-// 1: tare
-// 2: echelonnage + données A et B
-
 
 // characters speciaux
 byte FLECHES[8] = {
@@ -55,13 +51,13 @@ byte SMILEY[8] = {
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 
 unsigned long lcdTimer;
-unsigned long lcdCooldown = 500;
+const unsigned long LCD_INTERVAL = 500;
 unsigned long ampReadingTimer;
-unsigned long ampReadCooldown = 50;
+const unsigned long AMP_READ_INTERVAL = 50;
 unsigned long buttonTimer;
-unsigned long buttonCooldown = 50;
+const unsigned long BUTTON_INTERVAL = 50;
 unsigned long controllerTimer;
-unsigned long controllerCooldown = 20;
+const unsigned long CONTROLLER_INTERVAL = 20;
 // voir constantes BTN_NONE, BTN_RIGHT...
 byte prevSelectedButton;
 // modes haut-niveau
@@ -353,7 +349,7 @@ void handleInput(byte button) {
   Reçoit et traite les données d'entrée, gère le debouncing.
 */
 void updateInput() {
-  if (millis() - buttonTimer > buttonCooldown) {
+  if (millis() - buttonTimer > BUTTON_INTERVAL) {
     int s = getSelectedButton();
     if (prevSelectedButton != s) {
       if (s != BTN_NONE) {
@@ -550,7 +546,7 @@ void updateLcdMoyennage() {
 */
 void updateLCD() {
   String lcdTopText;
-  if (millis() - lcdTimer > lcdCooldown) {
+  if (millis() - lcdTimer > LCD_INTERVAL) {
     lcdTimer = millis();
     lcd.clear();
     switch (mode) {
@@ -606,12 +602,12 @@ void updateStability() {
   Met la variable de stabilité isStable à jour.
 */
 void updateController() {
-  if (millis() - controllerTimer > controllerCooldown) {
+  if (millis() - controllerTimer > CONTROLLER_INTERVAL) {
     controllerTimer = millis();
     int analogIn = analogRead(PIN_POSITION);
     tensionPos = analogInToVoltage(analogIn);
     myController.compute();
-    analogWrite(PIN_PWM, output);  //Output for Vamp_in
+    analogWrite(PIN_PWM, 255);  //Output for Vamp_in
 
     // check stability
     updateStability();
@@ -645,7 +641,7 @@ double readAmpVoltage() {
   Convertit une tension d'entrée de l'ampli en masse estimée avec les constantes calculées avec l'étalonnage. 
 */
 void updateAmpCurrent() {
-  if (millis() - ampReadingTimer > ampReadCooldown) {
+  if (millis() - ampReadingTimer > AMP_READ_INTERVAL) {
     ampReadingTimer = millis();
     double ampVoltage = readAmpVoltage();
     // update current vars
