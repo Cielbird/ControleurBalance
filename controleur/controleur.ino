@@ -107,7 +107,7 @@ double taredMass;
 double tare;
 // min et max dans les dernières secondes pour déterminer la stabilité
 const double stabilityPeriod = 3000;  // en [ms]
-const double STABLE_RANGE = 0.2;    // the max differnce betweeen setpoint and the current tensionPos value that is considered stable.
+const double STABLE_RANGE = 0.04;    // the max differnce betweeen setpoint and the current tensionPos value that is considered stable.
 unsigned long lastStableValTime;
 bool isStable;
 
@@ -646,7 +646,6 @@ double readAmpVoltage() {
   }
   // Calculate the average and convert to voltage
   double avgReading = (double) (ampReadingsTotal) / (double) (numAmpReadings);
-  Serial.println(avgReading);
   return analogInToVoltage(avgReading);
 }
 
@@ -669,11 +668,16 @@ void updateAmpCurrent() {
 void receiveCom() {
   if (Serial.available() > 0) {    // Check if data is available to read
     char command = Serial.read();  // Read the incoming byte
-    if (command == 't') {
-      tareRoutine();
-    } else if (command == 'e') {
-      calibConstA = Serial.parseFloat();
-      calibConstB = Serial.parseFloat();
+    switch (command){
+      case 't':
+        tareRoutine();
+        break;
+      case 'e':
+        calibConstA = Serial.parseFloat();
+        calibConstB = Serial.parseFloat();
+        break;
+      case 'm':
+        numAmpReadings = Serial.parseInt();
     }
     // Add more conditions for additional commands if needed
   }
@@ -707,7 +711,9 @@ void setup() {
   myController.start();
 
   //Set PWM speed to 37KHz
-  //TCCR1B = TCCR1B & B11111000 | B00000010;
+  TCCR1A = (1 << WGM11) | (1 << COM1A1);
+  TCCR1B = (0 << WGM12)| (0 << WGM13) |(1 << CS11) | (0 << CS10);
+  ICR1 = 4096;
   pinMode(PIN_PWM, OUTPUT);
 }
 
@@ -726,5 +732,5 @@ void loop() {
 
   // read incoming commands
   receiveCom();
-  //sendData();
+  sendData();
 }
