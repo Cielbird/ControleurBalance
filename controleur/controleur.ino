@@ -53,7 +53,7 @@ LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 unsigned long lcdTimer;
 const unsigned long LCD_INTERVAL = 500; // temps entre chaque mise à jour du LCD [ms]
 unsigned long comTimer;
-const unsigned long COM_INTERVAL = 5; // temps entre chaque envoie de données au PC [ms]
+const unsigned long COM_INTERVAL = 100; // temps entre chaque envoie de données au PC [ms]
 unsigned long ampReadingTimer;
 const unsigned long AMP_READ_INTERVAL = 5; // temps entre chaque lecture de l'ampli [ms]
 unsigned long buttonTimer;
@@ -85,20 +85,20 @@ SousModeEtalonnage sousModeEtalonnage = Menu;
 //unsigned int weights[] = {1, 2, 5, 10, 20, 50};//faire un étalonnage de 0 9
 //byte selectedCalib;
 // nb de chiffres apres la virgule
-byte precisionOpts[] = { 0, 1, 2, 3 };
+const byte PRECISION_OPTS[] = { 0, 1, 2, 3 };
 // index
 byte selectedPrecision = 0;
 //   coin counting mode
-String coinOpts[] = { "5c", "10c", "25c", "1$", "2$" };
-double coinMasses[] = { 3.95, 1.75, 4.4, 6.27, 6.92 };
+const String COIN_OPTS[] = { "5c", "10c", "25c", "1$", "2$" };
+const double COIN_MASSES[] = { 3.95, 1.75, 4.4, 6.27, 6.92 };
 byte selectedCoin = 0;
-byte numCoinTypes = sizeof(coinOpts) / sizeof(coinOpts[0]);
+byte numCoinTypes = sizeof(COIN_OPTS) / sizeof(COIN_OPTS[0]);
 const double COIN_IDENT_RANGE = 0.5;
 
 // units
 String unitOpts[] = { "g", "oz" };
 // ratio of the unit to gram
-double unitConversions[] = { 1, 0.035274, 0.01 };
+const double UNIT_CONVERSIONS[] = { 1, 0.035274, 0.01 };
 byte selectedUnit = 0;
 byte numUnits = sizeof(unitOpts) / sizeof(unitOpts[0]);
 
@@ -259,14 +259,14 @@ void handleInputPrecision(byte button) {
   handleInputMenuSelect(button);
   switch (button) {
     case BTN_UP:
-      if (selectedPrecision == sizeof(precisionOpts) - 1)
+      if (selectedPrecision == sizeof(PRECISION_OPTS) - 1)
         selectedPrecision = 0;
       else
         selectedPrecision++;
       break;
     case BTN_DOWN:
       if (selectedPrecision == 0)
-        selectedPrecision = sizeof(precisionOpts) - 1;
+        selectedPrecision = sizeof(PRECISION_OPTS) - 1;
       else
         selectedPrecision--;
   }
@@ -437,7 +437,7 @@ void lcdPrintOkIfStable() {
   Imprime la masse calculée en bas à droite du LCD
 */
 void lcdPrintMass() {
-  byte precision = precisionOpts[selectedPrecision];
+  byte precision = PRECISION_OPTS[selectedPrecision];
 
   // convertir double en str
   byte decimalPosInLcd;
@@ -446,7 +446,7 @@ void lcdPrintMass() {
   else
     decimalPosInLcd = 13 - precision;
   char massStr[8];  // taille max de la zone qu'on accorde au poids
-  double convertedTaredMass = taredMass * unitConversions[selectedUnit];
+  double convertedTaredMass = taredMass * UNIT_CONVERSIONS[selectedUnit];
   dtostrf(convertedTaredMass, 7, precision, massStr);  // Format the double to string with 7 total characters and 2 decimal places
   byte decimalPosInStr = 0;
   for (int i = 0; massStr[i] != '.' && massStr[i] != '\0'; i++) {
@@ -464,14 +464,14 @@ String getClosestCoin(double mass) {
   double massDiff;
   double smallestMassDiff;
   for (int i = 0; i < numCoinTypes; i++) {
-    massDiff = abs(coinMasses[i] - mass);
+    massDiff = abs(COIN_MASSES[i] - mass);
     if (i == 0 || massDiff < smallestMassDiff) {
       closestCoinType = i;
       smallestMassDiff = massDiff;
     }
   }
   if (smallestMassDiff < COIN_IDENT_RANGE) {
-    return coinOpts[closestCoinType];
+    return COIN_OPTS[closestCoinType];
   }
   return "...";
 }
@@ -547,7 +547,7 @@ void updateLcdPrecision() {
   lcd.setCursor(0, 1);
   lcd.write(byte(0));  // up down arrows
   lcd.setCursor(1, 1);
-  lcd.print(precisionOpts[selectedPrecision]);
+  lcd.print(PRECISION_OPTS[selectedPrecision]);
   lcd.print(" ch");
   lcdPrintMass();
 }
@@ -560,8 +560,8 @@ void updateLcdComptage() {
   lcd.setCursor(0, 1);
   lcd.write(byte(0));  // up down arrows
   lcd.setCursor(1, 1);
-  lcd.print(coinOpts[selectedCoin]);
-  int num = mass / coinMasses[selectedCoin];
+  lcd.print(COIN_OPTS[selectedCoin]);
+  int num = mass / COIN_MASSES[selectedCoin];
   lcd.setCursor(14, 1);
   lcd.print(num);
 }
@@ -728,11 +728,11 @@ void receiveCom() {
 void sendData() {
   if (millis() - comTimer > COM_INTERVAL) {
     comTimer = millis();
-    Serial.println(
-      "v_amp:" + String(ampVoltage) + "," + 
-      "v_pos:" + String(positionVoltage) + "," + 
-      "taredMass:" + String(taredMass) + "," + 
-      "stable:" + String(isStable));
+    const unsigned int precision = 5;
+    Serial.println("v_amp:" + String(ampVoltage, precision) + "," + 
+      "v_pos:" + String(positionVoltage, precision) + "," + 
+      "taredMass:" + String(taredMass, precision) + "," + 
+      "stable:" + String(isStable, precision));
   }
 }
 
