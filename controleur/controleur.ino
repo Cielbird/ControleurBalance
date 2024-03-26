@@ -72,9 +72,12 @@ const byte NUM_MODES = 7;
 Mode mode;
 // menu: on peut démarer un etalonnage, étape 1: mesure à vide, étape 2: mesure de 20g, étape 3: mesure de 50g (FAKE)
 enum SousModeEtalonnage { Menu,
+                          EtapeVide,
                           Etape1,
                           Etape2,
-                          Etape3};
+                          Etape10,
+                          Etape20,
+                          Etape50};
 SousModeEtalonnage sousModeEtalonnage = Menu;
 
 //unsigned int weights[] = {1, 2, 5, 10, 20, 50};//faire un étalonnage de 0 9
@@ -199,24 +202,42 @@ void handleInputEtalonnage(byte button) {
       handleInputMenuSelect(button);
       switch (button) {
         case BTN_SELECT:
-          sousModeEtalonnage = Etape1;
+          sousModeEtalonnage = EtapeVide;
+      }
+      break;
+    case EtapeVide:
+      if (button == BTN_SELECT && isStable) {
+        ampV1 = readAmpVoltage();
+        sousModeEtalonnage = Etape1;
       }
       break;
     case Etape1:
       if (button == BTN_SELECT && isStable) {
-        ampV1 = readAmpVoltage();
+        // DO NOTHING, à faire plus tard
         sousModeEtalonnage = Etape2;
       }
       break;
     case Etape2:
       if (button == BTN_SELECT && isStable) {
+        // DO NOTHING, à faire plus tard
+        sousModeEtalonnage = Etape10;
+      }
+      break;
+    case Etape10:
+      if (button == BTN_SELECT && isStable) {
+        // DO NOTHING, à faire plus tard
+        sousModeEtalonnage = Etape20;
+      }
+      break;
+    case Etape20:
+      if (button == BTN_SELECT && isStable) {
         ampV2 = readAmpVoltage();
         calibConstA = 20.0 / (ampV2 - ampV1);
         calibConstB = -ampV1 * calibConstA;
-        sousModeEtalonnage = Etape3;
+        sousModeEtalonnage = Etape50;
       }
       break;
-    case Etape3:
+    case Etape50:
       if (button == BTN_SELECT && isStable) {
         // DO NOTHING, à faire plus tard
         sousModeEtalonnage = Menu;
@@ -482,19 +503,34 @@ void updateLcdEtalonnage() {
       lcdPrintTitle("Etalonnage");
       lcdPrintOk();
       break;
-    case Etape1:
+    case EtapeVide:
       lcd.setCursor(0, 0);
       lcd.print("1)Aucun poids");
       lcdPrintOkIfStable();
       break;
+    case Etape1:
+      lcd.setCursor(0, 0);
+      lcd.print("1)Avec 1g");
+      lcdPrintOkIfStable();
+      break;
     case Etape2:
+      lcd.setCursor(0, 0);
+      lcd.print("2)Avec 2g");
+      lcdPrintOkIfStable();
+      break;
+    case Etape10:
+      lcd.setCursor(0, 0);
+      lcd.print("3)Avec 10g");
+      lcdPrintOkIfStable();
+      break;
+    case Etape20:
       lcd.setCursor(0, 0);
       lcd.print("3)Avec 20g");
       lcdPrintOkIfStable();
       break;
-    case Etape3:
+    case Etape50:
       lcd.setCursor(0, 0);
-      lcd.print("3)Avec 50g");
+      lcd.print("4)Avec 50g");
       lcdPrintOkIfStable();
       break;
   }
