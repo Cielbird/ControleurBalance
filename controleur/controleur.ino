@@ -52,6 +52,8 @@ LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 
 unsigned long lcdTimer;
 const unsigned long LCD_INTERVAL = 500; // temps entre chaque mise à jour du LCD [ms]
+unsigned long comTimer;
+const unsigned long COM_INTERVAL = 5; // temps entre chaque envoie de données au PC [ms]
 unsigned long ampReadingTimer;
 const unsigned long AMP_READ_INTERVAL = 5; // temps entre chaque lecture de l'ampli [ms]
 unsigned long buttonTimer;
@@ -103,14 +105,15 @@ byte numUnits = sizeof(unitOpts) / sizeof(unitOpts[0]);
 //déclaration boucle de régulation (Présentement en position)
 ArduPID myController;
 double output;            // PID sortie 0~255
-double tensionPos;        // PID entrée 0~5
+double positionVoltage;        // PID entrée 0~5
 double setpoint = 1.445;  //tension apres ampli du capteur à 16.4 mm
+double ampVoltage;        // mis à jour à chaque AMP_READ_INTERVAL
 double mass;
 double taredMass;
 double tare;
 // min et max dans les dernières secondes pour déterminer la stabilité
 const double stabilityPeriod = 3000;  // en [ms]
-const double STABLE_RANGE = 0.04;    // the max differnce betweeen setpoint and the current tensionPos value that is considered stable.
+const double STABLE_RANGE = 0.04;    // the max differnce betweeen setpoint and the current positionVoltage value that is considered stable.
 unsigned long lastStableValTime;
 bool isStable;
 
@@ -207,7 +210,7 @@ void handleInputEtalonnage(byte button) {
       break;
     case EtapeVide:
       if (button == BTN_SELECT && isStable) {
-        ampV1 = readAmpVoltage();
+        ampV1 = ampVoltage;
         sousModeEtalonnage = Etape1;
       }
       break;
@@ -231,7 +234,7 @@ void handleInputEtalonnage(byte button) {
       break;
     case Etape20:
       if (button == BTN_SELECT && isStable) {
-        ampV2 = readAmpVoltage();
+        ampV2 = ampVoltage;
         calibConstA = 20.0 / (ampV2 - ampV1);
         calibConstB = -ampV1 * calibConstA;
         sousModeEtalonnage = Etape50;
@@ -633,7 +636,7 @@ double analogInToVoltage(double in) {
   Evalue la stabilité du system, met à jour la variable isStable
 */
 void updateStability() {
-  if (abs(tensionPos - setpoint) > STABLE_RANGE) {
+  if (abs(positionVoltage - setpoint) > STABLE_RANGE) {
     lastStableValTime = 0;
     isStable = false;
   } else {  // value in range of stability
@@ -652,7 +655,7 @@ void updateController() {
   if (millis() - controllerTimer > CONTROLLER_INTERVAL) {
     controllerTimer = millis();
     int analogIn = analogRead(PIN_POSITION);
-    tensionPos = analogInToVoltage(analogIn);
+    positionVoltage = analogInToVoltage(analogIn);
     myController.compute();
     analogWrite(PIN_PWM, output);  //Output for Vamp_in
 
@@ -668,9 +671,9 @@ void updateController() {
 }
 
 /*
-  Lit l'entrée de l'ampli, applique un moyennage, et retourne une tension moyennée.
+  Lit l'entrée de l'ampli, applique un moyennage, et met la tension moyennée dans ampVoltage.
 */
-double readAmpVoltage() {
+void readAmpVoltage() {
   int ampReading = analogRead(PIN_AMP);
   ampReadingsTotal = ampReadingsTotal - ampReadings[ampReadIndex];
   ampReadings[ampReadIndex] = ampReading;
@@ -682,7 +685,7 @@ double readAmpVoltage() {
   }
   // Calculate the average and convert to voltage
   double avgReading = (double) (ampReadingsTotal) / (double) (numAmpReadings);
-  return analogInToVoltage(avgReading);
+  ampVoltage = analogInToVoltage(avgReading);
 }
 
 /*
@@ -691,7 +694,7 @@ double readAmpVoltage() {
 void updateAmpCurrent() {
   if (millis() - ampReadingTimer > AMP_READ_INTERVAL) {
     ampReadingTimer = millis();
-    double ampVoltage = readAmpVoltage();
+    readAmpVoltage();
     // update current vars
     mass = calibConstA * ampVoltage + calibConstB;
     taredMass = mass - tare;
@@ -723,9 +726,14 @@ void receiveCom() {
   Envoie les données au PC avec le format suivant : "masse : [masse],tension position : [tension pos]"
 */
 void sendData() {
-  Serial.println(
-    "masse: " + String(taredMass) + "," + 
-    "stable: " + String(isStable));
+  if (millis() - comTimer > COM_INTERVAL) {
+    comTimer = millis();
+    Serial.println(
+      "v_amp:" + String(ampVoltage) + "," + 
+      "v_pos:" + String(positionVoltage) + "," + 
+      "taredMass:" + String(taredMass) + "," + 
+      "stable:" + String(isStable));
+  }
 }
 
 void setup() {
@@ -741,15 +749,15 @@ void setup() {
   double I = 0.5;
   double D = 0.0;
   pinMode(PIN_POSITION, INPUT);
-  myController.begin(&tensionPos, &output, &setpoint, P, I, D, P_ON_E, BACKWARD, 20);
+  myController.begin(&positionVoltage, &output, &setpoint, P, I, D, P_ON_E, BACKWARD, 20);
   myController.setOutputLimits(0, 255);
   myController.setWindUpLimits(-500, 500);  // Groth bounds for the integral term to prevent integral wind-up
   myController.start();
 
   //Set PWM speed to 37KHz
-  TCCR1A = (1 << WGM11) | (1 << COM1A1);
-  TCCR1B = (0 << WGM12)| (0 << WGM13) |(1 << CS11) | (0 << CS10);
-  ICR1 = 4096;
+  //TCCR1A = (1 << WGM11) | (1 << COM1A1);
+  //TCCR1B = (0 << WGM12)| (0 << WGM13) |(1 << CS11) | (0 << CS10);
+  //ICR1 = 256;
   pinMode(PIN_PWM, OUTPUT);
 }
 
