@@ -1,6 +1,7 @@
 #include "ArduPID.h"
 #include "LiquidCrystal.h"
 
+
 //
 //#define UNO  // pour tester sur un UNO
 #define MEGA // pour le vrai prototype PCB avec le MEGA
@@ -80,9 +81,12 @@ enum SousModeEtalonnage { Menu,
                           Etape10,
                           Etape20,
                           Etape50};
+const byte NUM_CALIB_STEPS = 6;
 SousModeEtalonnage sousModeEtalonnage = Menu;
 
-//unsigned int weights[] = {1, 2, 5, 10, 20, 50};//faire un étalonnage de 0 9
+const double CALIB_WEIGHTS[] = {0, 1, 2, 10, 20, 50};//faire un étalonnage de 0 9
+const size_t NUM_CALIB_WEIGHTS = sizeof(CALIB_WEIGHTS)/sizeof(CALIB_WEIGHTS[0]);
+double calibVoltages[NUM_CALIB_WEIGHTS];
 //byte selectedCalib;
 // nb de chiffres apres la virgule
 const byte PRECISION_OPTS[] = { 0, 1, 2, 3 };
@@ -92,7 +96,7 @@ byte selectedPrecision = 0;
 const String COIN_OPTS[] = { "5c", "10c", "25c", "1$", "2$" };
 const double COIN_MASSES[] = { 3.95, 1.75, 4.4, 6.27, 6.92 };
 byte selectedCoin = 0;
-byte numCoinTypes = sizeof(COIN_OPTS) / sizeof(COIN_OPTS[0]);
+const size_t NUM_COIN_TYPES = sizeof(COIN_OPTS) / sizeof(COIN_OPTS[0]);
 const double COIN_IDENT_RANGE = 0.5;
 
 // units
@@ -129,6 +133,28 @@ unsigned int ampReadings[MAX_NUM_AMP_READINGS];  // lectures pour la sortie de l
 size_t ampReadIndex = 0;                   // indexe de la lecture actuelle
 unsigned long ampReadingsTotal = 0;            // total des lectures dans le tableau
 
+/*
+  Calcule les parametres d'une régression linéaire.
+  Paramètres :
+    x_values : Un tableau de valeurs doubles représentant les coordonnées x.
+    y_values : Un tableau de valeurs doubles représentant les coordonnées y correspondantes.
+    num_points : Un entier indiquant le nombre de points de données.
+    slope : Une référence pour stocker la pente calculée.
+    intercept : Une référence pour stocker l'ordonnée à l'origine calculée.
+*/
+void linearRegression(double x_values[], double y_values[], int num_points, double& slope, double& intercept) {
+  double sum_x = 0, sum_y = 0, sum_xy = 0, sum_x_squared = 0;
+
+  for (int i = 0; i < num_points; i++) {
+    sum_x += x_values[i];
+    sum_y += y_values[i];
+    sum_xy += x_values[i] * y_values[i];
+    sum_x_squared += x_values[i] * x_values[i];
+  }
+
+  slope = (num_points * sum_xy - sum_x * sum_y) / (num_points * sum_x_squared - sum_x * sum_x);
+  intercept = (sum_y - slope * sum_x) / num_points;
+}
 
 /*
   Retourne un byte pour le bouton selectionné. Voir les constantes BTN_RIGHT, BTN_LEFT...
@@ -200,55 +226,33 @@ void handleInputTarage(byte button) {
   Gère toutes les entrées pour le mode étalonnage
 */
 void handleInputEtalonnage(byte button) {
-  switch (sousModeEtalonnage) {
-    case Menu:
-      handleInputMenuSelect(button);
-      switch (button) {
-        case BTN_SELECT:
-          sousModeEtalonnage = EtapeVide;
+  if(sousModeEtalonnage == Menu)
+  {
+    handleInputMenuSelect(button);
+    switch (button) {
+      case BTN_SELECT:
+        sousModeEtalonnage = EtapeVide;
+    }
+  }
+  else
+  {
+    if (button == BTN_SELECT && isStable) {
+      Serial.println(ampVoltage);
+      calibVoltages[sousModeEtalonnage - 1] = ampVoltage;
+      if(sousModeEtalonnage < NUM_CALIB_STEPS)
+      {
+        sousModeEtalonnage = sousModeEtalonnage + 1;
       }
-      break;
-    case EtapeVide:
-      if (button == BTN_SELECT && isStable) {
-        ampV1 = ampVoltage;
-        sousModeEtalonnage = Etape1;
-      }
-      break;
-    case Etape1:
-      if (button == BTN_SELECT && isStable) {
-        // DO NOTHING, à faire plus tard
-        sousModeEtalonnage = Etape2;
-      }
-      break;
-    case Etape2:
-      if (button == BTN_SELECT && isStable) {
-        // DO NOTHING, à faire plus tard
-        sousModeEtalonnage = Etape10;
-      }
-      break;
-    case Etape10:
-      if (button == BTN_SELECT && isStable) {
-        // DO NOTHING, à faire plus tard
-        sousModeEtalonnage = Etape20;
-      }
-      break;
-    case Etape20:
-      if (button == BTN_SELECT && isStable) {
-        ampV2 = ampVoltage;
-        calibConstA = 20.0 / (ampV2 - ampV1);
-        calibConstB = -ampV1 * calibConstA;
-        sousModeEtalonnage = Etape50;
-      }
-      break;
-    case Etape50:
-      if (button == BTN_SELECT && isStable) {
-        // DO NOTHING, à faire plus tard
+      else
+      {
+        // calculate regression
+        linearRegression(calibVoltages, CALIB_WEIGHTS, NUM_CALIB_WEIGHTS, calibConstA, calibConstB);
         sousModeEtalonnage = Menu;
         // return to main menu, reset tare
         tare = 0;
         mode = Pesage;
       }
-      break;
+    }
   }
 }
 
@@ -279,14 +283,14 @@ void handleInputComptage(byte button) {
   handleInputMenuSelect(button);
   switch (button) {
     case BTN_UP:
-      if (selectedCoin == numCoinTypes - 1)
+      if (selectedCoin == NUM_COIN_TYPES - 1)
         selectedCoin = 0;
       else
         selectedCoin++;
       break;
     case BTN_DOWN:
       if (selectedCoin == 0)
-        selectedCoin = numCoinTypes - 1;
+        selectedCoin = NUM_COIN_TYPES - 1;
       else
         selectedCoin--;
   }
@@ -463,7 +467,7 @@ String getClosestCoin(double mass) {
   int closestCoinType;
   double massDiff;
   double smallestMassDiff;
-  for (int i = 0; i < numCoinTypes; i++) {
+  for (int i = 0; i < NUM_COIN_TYPES; i++) {
     massDiff = abs(COIN_MASSES[i] - mass);
     if (i == 0 || massDiff < smallestMassDiff) {
       closestCoinType = i;
@@ -501,41 +505,24 @@ void updateLcdTarage() {
   Met à jour l'LCD pour le mode étalonnage
 */
 void updateLcdEtalonnage() {
-  switch (sousModeEtalonnage) {
-    case Menu:
-      lcdPrintTitle("Etalonnage");
-      lcdPrintOk();
-      break;
-    case EtapeVide:
-      lcd.setCursor(0, 0);
-      lcd.print("1)Aucun poids");
-      lcdPrintOkIfStable();
-      break;
-    case Etape1:
-      lcd.setCursor(0, 0);
-      lcd.print("1)Avec 1g");
-      lcdPrintOkIfStable();
-      break;
-    case Etape2:
-      lcd.setCursor(0, 0);
-      lcd.print("2)Avec 2g");
-      lcdPrintOkIfStable();
-      break;
-    case Etape10:
-      lcd.setCursor(0, 0);
-      lcd.print("3)Avec 10g");
-      lcdPrintOkIfStable();
-      break;
-    case Etape20:
-      lcd.setCursor(0, 0);
-      lcd.print("3)Avec 20g");
-      lcdPrintOkIfStable();
-      break;
-    case Etape50:
-      lcd.setCursor(0, 0);
-      lcd.print("4)Avec 50g");
-      lcdPrintOkIfStable();
-      break;
+  if(sousModeEtalonnage == Menu){
+    lcdPrintTitle("Etalonnage");
+    lcdPrintOk();
+  }
+  else
+  {
+    lcd.setCursor(0, 0);
+    lcd.print(sousModeEtalonnage);
+    if(sousModeEtalonnage == EtapeVide){
+      lcd.print(")Aucun poids");
+    }
+    else
+    {
+      lcd.print(")Avec ");
+      lcd.print(CALIB_WEIGHTS[sousModeEtalonnage - 1]);
+      lcd.print("g");
+    }
+    lcdPrintOkIfStable();
   }
 }
 
@@ -713,7 +700,7 @@ void receiveCom() {
         break;
       case 'e':
         calibConstA = Serial.parseFloat();
-        calibConstB = Serial.parseFloat();
+        calibConstB = Serial.parseFloat();        
         break;
       case 'm':
         numAmpReadings = Serial.parseInt();
